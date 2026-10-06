@@ -1,181 +1,359 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useState } from "react";
-import { toast } from "sonner";
-import { ArrowLeft, ExternalLink, Loader2, Star, User, Quote, Lightbulb, Network } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
-import { getLead, updateLead } from "@/lib/leads.functions";
-import { STAGES } from "@/lib/lead-stages";
+import { getCrmRecord } from "@/lib/crm-detail.functions";
+import {
+  evidenceReferences,
+  objectFields,
+  resolveEvidenceSpan,
+  safeResearchUrl,
+} from "@/lib/crm-detail";
+import type { ResearchNode } from "@/lib/crm-detail";
+import type { ReactNode } from "react";
 
 export const Route = createFileRoute("/_authenticated/leads/$key")({
-  head: () => ({
-    meta: [
-      { title: "Lead details — Auto Research" },
-      { name: "description", content: "Everything the research swarm found on this company: verdict, people, signals and sources." },
-      { property: "og:title", content: "Lead details — Auto Research" },
-      { property: "og:description", content: "Everything the research swarm found on this company." },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
-    ],
-  }),
-  component: LeadPage,
+  head: () => ({ meta: [{ title: "CRM record — Auto Research" }] }),
+  component: CrmRecordPage,
 });
 
-function LeadPage() {
+function valueText(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "Unknown";
+  return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
+
+function CrmRecordPage() {
   const { key } = Route.useParams();
-  const fetchLead = useServerFn(getLead);
-  const save = useServerFn(updateLead);
-  const qc = useQueryClient();
-  const { data: lead, isLoading } = useQuery({ queryKey: ["lead", key], queryFn: () => fetchLead({ data: { key } }) });
-  const [notes, setNotes] = useState("");
-  useEffect(() => setNotes(lead?.crm?.notes ?? ""), [lead?.crm?.notes]);
-
-  async function patch(p: { stage?: string; starred?: boolean; notes?: string }) {
-    await save({ data: { key, ...p } });
-    qc.invalidateQueries({ queryKey: ["lead", key] });
-    qc.invalidateQueries({ queryKey: ["leads"] });
-  }
-
-  if (isLoading) return <div className="flex min-h-screen items-center justify-center bg-background"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
-  if (!lead) return (
-    <div className="min-h-screen bg-background"><AppHeader /><div className="p-12 text-center text-muted-foreground">Lead not found. <Link to="/leads" className="text-primary underline">Back to leads</Link></div></div>
-  );
-
-  const primary = lead.records[0] as any;
-  const fields: any = Object.assign({}, ...lead.records.map((r: any) => r.fields ?? {}));
-  const people = lead.links.filter((l: any) => l.node.category === "primary_entity" && l.node.entity_type === "person");
-  const signals = lead.links.filter((l: any) => l.node.category === "note" && l.node.semantic_kind === "demand_signal");
-  const notesFound = lead.links.filter((l: any) => l.node.category === "note" && l.node.semantic_kind !== "demand_signal");
-  const sources = lead.links.filter((l: any) => l.node.category === "source_chunk");
-  const writeup = lead.records.map((r: any) => r.free_text).filter(Boolean).join("\n\n---\n\n");
-  const stage = lead.crm?.stage ?? "new";
-  const starred = lead.crm?.starred ?? false;
-
+  const { user } = Route.useRouteContext();
+  const readRecord = useServerFn(getCrmRecord);
+  const query = useQuery({
+    queryKey: ["crm", "record", user.id, key],
+    queryFn: () => readRecord({ data: { id: key } }),
+    retry: false,
+  });
+  const detail = query.data;
   return (
     <div className="min-h-screen bg-background">
       <AppHeader />
-      <main className="mx-auto max-w-6xl px-6 py-8">
-        <Link to="/leads" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"><ArrowLeft className="h-3 w-3" /> All leads</Link>
-        <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-3xl font-bold">{primary.title}</h1>
-              <span className="rounded border border-primary/50 px-2 py-0.5 font-data text-[11px] uppercase text-primary">{fields.status ?? "candidate"}</span>
-            </div>
-            <div className="mt-1 flex flex-wrap gap-3 font-data text-xs text-muted-foreground">
-              {fields.website && <a href={fields.website.startsWith("http") ? fields.website : `https://${fields.website}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-primary">{fields.website} <ExternalLink className="h-3 w-3" /></a>}
-              {fields.location && <span>{fields.location}</span>}
-              {fields.size && <span>{fields.size}</span>}
-            </div>
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+        <Link to="/leads" className="text-sm text-primary underline">
+          Back to CRM
+        </Link>
+        {query.isPending ? (
+          <p role="status" className="mt-6">
+            Loading record…
+          </p>
+        ) : query.isError ? (
+          <div role="alert" className="mt-6 rounded border border-destructive p-4">
+            <p>{query.error.message}</p>
+            <button className="mt-2 underline" onClick={() => void query.refetch()}>
+              Try again
+            </button>
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => patch({ starred: !starred })} className={`rounded-md border px-3 py-2 ${starred ? "border-chunk text-chunk" : "border-border text-muted-foreground"}`} aria-label="Star"><Star className={`h-4 w-4 ${starred ? "fill-chunk" : ""}`} /></button>
-            <select value={stage} onChange={(e) => patch({ stage: e.target.value })} className="rounded-md border border-input bg-card px-3 py-2 text-sm">
-              {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-        </div>
-
-        <div className="mt-8 grid gap-6 lg:grid-cols-3">
-          <div className="space-y-6 lg:col-span-2">
-            <Section title="Swarm write-up" icon={<Lightbulb className="h-4 w-4" />}>
-              {writeup ? <div className="whitespace-pre-wrap text-sm leading-relaxed">{writeup}</div> : <Empty>No write-up yet — this company hasn't been qualified.</Empty>}
-            </Section>
-
-            <Section title={`Claims (${lead.assertions.length})`} icon={<Quote className="h-4 w-4" />}>
-              {lead.assertions.length === 0 ? <Empty>No verified claims yet.</Empty> : (
-                <ul className="space-y-2">
-                  {lead.assertions.map((a: any) => (
-                    <li key={a.id} className="rounded-md border border-border bg-background p-3 text-sm">
-                      <div className="flex justify-between gap-3"><span>{a.claim}</span><Conf v={a.confidence} /></div>
-                      {Array.isArray(a.evidence) && a.evidence.slice(0, 2).map((e: any, i: number) => e?.quote && <blockquote key={i} className="mt-2 border-l-2 border-chunk pl-2 text-xs italic text-muted-foreground">“{e.quote}”</blockquote>)}
-                    </li>
+        ) : !detail ? (
+          <p className="mt-6">This record is unavailable or you do not have access.</p>
+        ) : (
+          <>
+            <header className="my-6">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                {detail.record.entity_type}
+              </p>
+              <h1 className="text-3xl font-bold">{detail.record.title}</h1>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {detail.evidenceCount} supporting sources · {detail.contactCount} distinct related
+                contacts · {detail.runs.length} research runs
+              </p>
+            </header>
+            <div className="grid gap-6 lg:grid-cols-3">
+              <div className="space-y-6 lg:col-span-2">
+                <Section title="Research fields">
+                  <Fields fields={objectFields(detail.record.fields)} />
+                </Section>
+                <Section title="Research write-up">
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                    {detail.record.free_text || "No write-up recorded."}
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Confidence: {detail.record.confidence ?? "Unknown"}. Research values retain
+                    their original evidence below.
+                  </p>
+                </Section>
+                <Section title="Assessments and field history">
+                  <p className="mb-3 text-sm text-muted-foreground">
+                    Each search has its own objective and verdict. Conflicting values are kept
+                    separately.
+                  </p>
+                  {detail.sources.map((source) => {
+                    const snapshot = objectFields(source.snapshot);
+                    const run = detail.runs.find((item) => item.id === source.run_id);
+                    return (
+                      <article key={source.id} className="mb-3 rounded border border-border p-3">
+                        <Link
+                          className="font-semibold text-primary underline"
+                          to="/runs/$runId"
+                          params={{ runId: source.run_id }}
+                        >
+                          {run?.objective ?? "Source run"}
+                        </Link>
+                        <p className="my-2 text-xs text-muted-foreground">
+                          Graph revision {source.graph_revision} · Entity revision{" "}
+                          {source.node_revision} · {source.created_at}
+                        </p>
+                        <Fields fields={objectFields(snapshot["fields"])} />
+                        <p className="mt-3 whitespace-pre-wrap text-sm">
+                          {valueText(snapshot["free_text"])}
+                        </p>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Provenance: {valueText(snapshot["provenance"])} · Confidence:{" "}
+                          {valueText(snapshot["confidence"])}
+                        </p>
+                      </article>
+                    );
+                  })}
+                </Section>
+                <Section title="Claims and exact supporting passages">
+                  {!detail.assertions.length && (
+                    <p className="text-sm text-muted-foreground">
+                      No claims recorded. Missing evidence remains a research gap.
+                    </p>
+                  )}
+                  {detail.assertions.map((assertion) => (
+                    <article key={assertion.id} className="mb-4 rounded border border-border p-3">
+                      <p className="font-medium">{assertion.claim}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {assertion.field_key ? `Field: ${assertion.field_key} · ` : ""}
+                        {assertion.confidence} confidence · assessment{" "}
+                        {assertion.assessment_version}
+                      </p>
+                      <Link
+                        className="text-xs text-primary underline"
+                        to="/runs/$runId"
+                        params={{ runId: assertion.run_id }}
+                      >
+                        Open source run
+                      </Link>
+                      {evidenceReferences(assertion.evidence).map((ref, index) => (
+                        <Evidence
+                          key={`${ref.chunkId}-${index}`}
+                          reference={ref}
+                          node={detail.nodes.find((node) => node.id === ref.chunkId)}
+                        />
+                      ))}
+                    </article>
                   ))}
-                </ul>
-              )}
-            </Section>
-
-            <Section title={`Buying signals (${signals.length})`} icon={<Network className="h-4 w-4" />}>
-              {signals.length === 0 ? <Empty>No demand signals captured.</Empty> : signals.map((s: any, i: number) => <NoteCard key={i} l={s} />)}
-            </Section>
-
-            {notesFound.length > 0 && (
-              <Section title={`Other findings (${notesFound.length})`}>{notesFound.map((s: any, i: number) => <NoteCard key={i} l={s} />)}</Section>
-            )}
-
-            <Section title={`Sources (${sources.length})`}>
-              {sources.length === 0 ? <Empty>No sources linked.</Empty> : (
-                <ul className="space-y-2">
-                  {sources.map((s: any, i: number) => (
-                    <li key={i} className="rounded-md border border-border bg-background p-3 text-xs">
-                      <div className="flex items-center justify-between gap-2">
-                        <a href={s.node.locator ?? "#"} target="_blank" rel="noreferrer" className="truncate font-semibold text-chunk hover:underline">{s.node.title}</a>
-                        <span className={`font-data uppercase ${s.polarity === "contradicts" ? "text-destructive" : "text-muted-foreground"}`}>{s.relation}{s.polarity ? ` · ${s.polarity}` : ""}</span>
-                      </div>
-                      {s.rationale && <p className="mt-1 text-muted-foreground">{s.rationale}</p>}
-                      {s.node.content && <p className="mt-1 line-clamp-3 text-muted-foreground/80">{s.node.content}</p>}
-                    </li>
+                </Section>
+              </div>
+              <aside className="space-y-6">
+                <Section title="Related companies and people">
+                  {!detail.links.some(({ node }) => node?.category === "primary_entity") && (
+                    <p className="text-sm text-muted-foreground">
+                      No confirmed relationship recorded. Employer or contact information may be
+                      unknown.
+                    </p>
+                  )}
+                  {detail.links
+                    .filter(({ node }) => node?.category === "primary_entity")
+                    .map(
+                      ({ edge, node }) =>
+                        node && (
+                          <article key={edge.id} className="mb-3 rounded border border-border p-3">
+                            {detail.crmIds[node.id] ? (
+                              <Link
+                                to="/leads/$key"
+                                params={{ key: detail.crmIds[node.id]! }}
+                                className="font-semibold text-primary underline"
+                              >
+                                {node.title}
+                              </Link>
+                            ) : (
+                              <span className="font-semibold">{node.title}</span>
+                            )}
+                            <p className="mt-1 text-xs">
+                              {node.entity_type} · {valueText(objectFields(node.fields)["role"])}
+                            </p>
+                            <p className="mt-1 text-xs">
+                              {edge.relation} · {edge.polarity ?? "Unspecified polarity"}
+                            </p>
+                            {edge.relation === "works_at" && (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Employment timing is not verified by this relationship alone.
+                              </p>
+                            )}
+                            {edge.relation === "best_contact_for" && (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Contact recommendation for the linked pain assessment.
+                              </p>
+                            )}
+                            {edge.rationale && <p className="mt-2 text-sm">{edge.rationale}</p>}
+                            <Link
+                              to="/runs/$runId"
+                              params={{ runId: edge.run_id }}
+                              className="mt-2 inline-block text-xs text-primary underline"
+                            >
+                              Inspect relationship and evidence
+                            </Link>
+                          </article>
+                        ),
+                    )}
+                </Section>
+                <Section title="Signals and other findings">
+                  {detail.links
+                    .filter(({ node }) => node?.category === "note")
+                    .map(
+                      ({ edge, node }) =>
+                        node && (
+                          <article key={edge.id} className="mb-3 rounded border border-border p-3">
+                            <h3 className="font-medium">{node.title}</h3>
+                            <p className="text-xs text-muted-foreground">
+                              {node.semantic_kind ?? node.editorial_type} · {edge.relation} ·{" "}
+                              {edge.polarity ?? "Unknown polarity"}
+                            </p>
+                            <p className="mt-2 whitespace-pre-wrap text-sm">
+                              {node.content || node.free_text || "No detail recorded."}
+                            </p>
+                          </article>
+                        ),
+                    )}
+                </Section>
+                <Section title="Source context">
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    Retrieval context is not proof of a claim. Claim citations above identify the
+                    actual supporting passages.
+                  </p>
+                  {detail.links
+                    .filter(({ node }) => node?.category === "source_chunk")
+                    .map(
+                      ({ edge, node }) =>
+                        node && (
+                          <article key={edge.id} className="mb-3 rounded border border-border p-3">
+                            <Source node={node} />
+                            <p className="text-xs">
+                              {edge.relation} · {edge.polarity ?? "Unknown polarity"}
+                            </p>
+                          </article>
+                        ),
+                    )}
+                </Section>
+                <Section title="Source runs and graph">
+                  {detail.runs.map((run) => (
+                    <div key={run.id} className="mb-3">
+                      <Link
+                        to="/runs/$runId"
+                        params={{ runId: run.id }}
+                        className="text-primary underline"
+                      >
+                        {run.objective}
+                      </Link>
+                      <p className="text-xs text-muted-foreground">
+                        {run.outcome ?? run.status} · {run.ended_at ?? run.created_at}
+                      </p>
+                      <Link
+                        to="/swarm/$runId"
+                        params={{ runId: run.id }}
+                        className="text-xs text-primary underline"
+                      >
+                        Open research graph
+                      </Link>
+                    </div>
                   ))}
-                </ul>
-              )}
-            </Section>
-          </div>
-
-          <div className="space-y-6">
-            <Section title={`People (${people.length})`} icon={<User className="h-4 w-4" />}>
-              {people.length === 0 ? <Empty>No contacts found yet.</Empty> : people.map((p: any, i: number) => (
-                <div key={i} className="mb-2 rounded-md border border-border bg-background p-3">
-                  <div className="font-semibold">{p.node.title}</div>
-                  <div className="text-xs text-muted-foreground">{p.node.fields?.role ?? "—"}{p.node.fields?.founder_or_ceo ? " · Founder/CEO" : ""}</div>
-                  {p.relation === "best_contact_for" && <div className="mt-1 font-data text-[10px] uppercase text-primary">Best contact</div>}
-                </div>
-              ))}
-            </Section>
-
-            <Section title="Your notes">
-              <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={6} placeholder="Outreach plan, call notes…" className="w-full rounded-md border border-input bg-background p-2 text-sm outline-none focus:border-primary" />
-              <button onClick={async () => { await patch({ notes }); toast.success("Notes saved"); }} className="mt-2 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground">Save notes</button>
-            </Section>
-
-            <Section title="Found in searches">
-              {lead.runs.map((r: any) => (
-                <div key={r.id} className="mb-2 text-sm">
-                  <Link to="/runs/$runId" params={{ runId: r.id }} className="hover:text-primary">{r.objective}</Link>
-                  <div className="flex gap-3 font-data text-[11px] text-muted-foreground">
-                    <span>{r.outcome ?? r.status}</span>
-                    <Link to="/swarm/$runId" params={{ runId: r.id }} className="text-primary hover:underline">watch swarm</Link>
-                  </div>
-                </div>
-              ))}
-            </Section>
-          </div>
-        </div>
+                </Section>
+              </aside>
+            </div>
+          </>
+        )}
       </main>
     </div>
   );
 }
 
-function Section({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="rounded-lg border border-border bg-card p-4">
-      <h2 className="mb-3 flex items-center gap-2 font-data text-xs uppercase tracking-widest text-muted-foreground">{icon}{title}</h2>
+      <h2 className="mb-3 text-base font-semibold">{title}</h2>
       {children}
     </section>
   );
 }
-function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="text-sm text-muted-foreground">{children}</p>;
-}
-function Conf({ v }: { v: string }) {
-  const c = v === "high" ? "text-primary" : v === "low" ? "text-destructive" : "text-chunk";
-  return <span className={`shrink-0 font-data text-[10px] uppercase ${c}`}>{v}</span>;
-}
-function NoteCard({ l }: { l: any }) {
+
+function Fields({ fields }: { fields: Record<string, unknown> }) {
+  if (!Object.keys(fields).length)
+    return <p className="text-sm text-muted-foreground">No fields recorded.</p>;
   return (
-    <div className="mb-2 rounded-md border border-border bg-background p-3 text-sm">
-      <div className="flex justify-between gap-2"><span className="font-semibold">{l.node.title}</span>{l.node.confidence && <Conf v={l.node.confidence} />}</div>
-      {(l.node.content || l.node.free_text) && <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">{l.node.content ?? l.node.free_text}</p>}
-    </div>
+    <dl className="grid gap-2 text-sm">
+      {Object.entries(fields).map(([name, value]) => (
+        <div key={name} className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-3">
+          <dt className="break-words text-muted-foreground">{name.replaceAll("_", " ")}</dt>
+          <dd className="break-words">{valueText(value)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function Source({ node }: { node: ResearchNode }) {
+  const url = safeResearchUrl(node.locator);
+  return (
+    <>
+      <h4 className="font-medium">{node.title}</h4>
+      <p className="text-xs text-muted-foreground">
+        {node.is_snippet ? "Captured search snippet" : "Captured source"} ·{" "}
+        {node.provider ?? "Unknown provider"} · {node.connector ?? "Unknown connector"}
+      </p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Published: {node.published_at ?? "Unknown"}
+        <br />
+        Event: {node.event_at ?? "Unknown"}
+        <br />
+        Fetched: {node.fetched_at ?? "Unknown"}
+      </p>
+      {url && (
+        <a href={url} target="_blank" rel="noreferrer" className="text-xs text-primary underline">
+          Open original source
+        </a>
+      )}
+    </>
+  );
+}
+
+function Evidence({
+  reference,
+  node,
+}: {
+  reference: ReturnType<typeof evidenceReferences>[number];
+  node: ResearchNode | undefined;
+}) {
+  if (!node || node.category !== "source_chunk")
+    return (
+      <p className="mt-2 text-sm text-muted-foreground">
+        Supporting source unavailable or restricted.
+      </p>
+    );
+  const content = node.content ?? "";
+  const span = resolveEvidenceSpan(content, reference);
+  return (
+    <details className="mt-3 rounded border border-border p-3">
+      <summary className="cursor-pointer text-sm">
+        {reference.polarity}: {node.title}
+      </summary>
+      <div className="mt-2">
+        <Source node={node} />
+        {span ? (
+          <blockquote className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap text-sm">
+            {content.slice(0, span.start)}
+            <mark>{content.slice(span.start, span.end)}</mark>
+            {content.slice(span.end)}
+          </blockquote>
+        ) : (
+          <>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Citation offsets could not be verified; no passage is highlighted.
+            </p>
+            <blockquote className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap text-sm">
+              {content || "No retained passage available."}
+            </blockquote>
+          </>
+        )}
+      </div>
+    </details>
   );
 }
