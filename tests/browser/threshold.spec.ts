@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { useDemoGtm } from './helpers';
 
 test('completion threshold supports keyboard percentages and persists the same vote boundary',async({page})=>{
   await page.goto('/');
+  await useDemoGtm(page);
   const slider=page.getByRole('slider',{name:'Completion threshold',exact:true});
   await expect(slider).toHaveAttribute('min','1');
   await slider.focus();
@@ -17,9 +19,8 @@ test('completion threshold supports keyboard percentages and persists the same v
   await page.locator('#swarm').focus();
   await page.locator('#swarm').press('End');
   await expect(page.getByText(/7 of 100 agents must agree/)).toBeVisible();
-  await expect(page.getByText('7 / 100 votes',{exact:true})).toBeVisible();
   const created=page.waitForResponse(response=>response.url().endsWith('/api/runs')&&response.request().method()==='POST');
-  await page.getByRole('button',{name:'Launch research'}).click();
+  await page.getByRole('button',{name:'Start'}).click();
   const run=await (await created).json();
   expect(run.config.threshold).toBe(.07);
   expect(run.config.swarmSize).toBe(100);
@@ -49,9 +50,10 @@ test('a fractional saved threshold is normalized to the displayed whole percenta
     await route.fulfill({response,json:bootstrap});
   });
   await page.goto('/');
+  await page.locator('#objective').fill('Summarize volcanic hazards.');
   await expect(page.getByRole('slider',{name:'Completion threshold',exact:true})).toHaveValue('7');
   const created=page.waitForResponse(response=>response.url().endsWith('/api/runs')&&response.request().method()==='POST');
-  await page.getByRole('button',{name:'Launch research'}).click();
+  await page.getByRole('button',{name:'Start'}).click();
   const run=await (await created).json();
   expect(run.config.threshold).toBe(.07);
 });

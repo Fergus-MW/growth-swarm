@@ -1,8 +1,20 @@
 import { test, expect } from '@playwright/test';
+import { useDemoGtm } from './helpers';
 
 test('Start is the single primary action below the completion threshold', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeVisible({ timeout: 3000 });
+  const start = page.getByRole('button', { name: 'Start', exact: true });
+  await expect(start).toBeVisible({ timeout: 3000 });
+  await expect(start).toBeDisabled();
+  const threshold = (await page.locator('#threshold').boundingBox())!;
+  const action = (await start.boundingBox())!;
+  expect(action.y).toBeGreaterThan(threshold.y + threshold.height);
+  expect(action.width).toBe(threshold.width);
+  await page.screenshot({ path: 'test-results/start-setup-desktop.png', fullPage: true });
+  await page.locator('#objective').fill('  ');
+  await expect(start).toBeDisabled();
+  await page.locator('#objective').fill('Hi');
+  await expect(start).toBeEnabled();
 });
 
 test('repeated form submission makes one admission request and preserves input on failure', async ({ page }) => {
@@ -31,6 +43,7 @@ test('repeated form submission makes one admission request and preserves input o
 
 test('one Start automatically completes and preserves its final graph', async ({ page }) => {
   await page.goto('/');
+  await useDemoGtm(page);
   await page.locator('#min-companies').fill('5');
   await page.getByText('Discovery saturation', { exact: true }).click();
   await page.locator('#saturation').fill('0');
@@ -49,4 +62,20 @@ test('one Start automatically completes and preserves its final graph', async ({
   expect(duplicate.status()).toBe(409);
   const after = await (await page.request.get(`/api/runs/${run.id}/snapshot`)).json();
   expect(after).toEqual(checkpoint);
+});
+
+
+test('a new task can reuse the same completed brief without reopening the previous run', async ({ page }) => {
+  await page.goto('/');
+  const ids: string[] = [];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt) await page.getByRole('button', { name: 'New research', exact: true }).click();
+    await page.locator('#objective').fill('Explain local volcanic hazards');
+    const admission = page.waitForResponse(response => response.url().endsWith('/api/runs') && response.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Start', exact: true }).click();
+    const run = await (await admission).json();
+    ids.push(run.id);
+    await expect(page.getByRole('button', { name: 'Continue research' })).toBeVisible({ timeout: 25000 });
+  }
+  expect(ids[0]).not.toBe(ids[1]);
 });
