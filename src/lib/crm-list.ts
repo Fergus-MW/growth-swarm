@@ -1,3 +1,5 @@
+import type { CrmWorkingState } from "./crm-workflow";
+
 export type CrmRecordRow = {
   id: string;
   entity_type: "company" | "person";
@@ -69,7 +71,9 @@ export function buildCrmList(
   sources: CrmSourceRow[],
   runs: CrmRun[],
   edges: CrmEmploymentEdge[],
+  workingState: CrmWorkingState[] = [],
 ): CrmListRecord[] {
+  const workById = new Map(workingState.map((state) => [state.record_id, state]));
   const runById = new Map(runs.map((run) => [run.id, run]));
   const sourceByRecord = new Map<string, CrmSourceRow[]>();
   const recordByNode = new Map<string, string>();
@@ -84,6 +88,9 @@ export function buildCrmList(
     .filter((record) => sourceByRecord.has(record.id))
     .map((record): CrmListRecord => {
       const fields = object(record.fields);
+      const work = workById.get(record.id);
+      const effective = (key: string, research: string | null) =>
+        work && Object.hasOwn(work.overrides, key) ? work.overrides[key] ?? null : research;
       const recordSources = sourceByRecord.get(record.id)!;
       const verdicts = recordSources.map((source) => ({
         runId: source.run_id,
@@ -92,22 +99,22 @@ export function buildCrmList(
       return {
         id: record.id,
         entityType: record.entity_type,
-        name: record.title,
-        website: field(fields, "website", "domain"),
-        location: field(fields, "location"),
-        size: field(fields, "size", "employee_count"),
-        role: field(fields, "role", "job_title", "title"),
-        email: field(fields, "email"),
-        phone: field(fields, "phone", "phone_number"),
-        profile: field(fields, "linkedin", "linkedin_url", "profile_url"),
+        name: effective("name", record.title) ?? record.title,
+        website: effective("website", field(fields, "website", "domain")),
+        location: effective("location", field(fields, "location")),
+        size: effective("size", field(fields, "size", "employee_count")),
+        role: effective("role", field(fields, "role", "job_title", "title")),
+        email: effective("email", field(fields, "email")),
+        phone: effective("phone", field(fields, "phone", "phone_number")),
+        profile: effective("linkedin", field(fields, "linkedin", "linkedin_url", "profile_url")),
         gaps: gapsFrom(fields),
         verdicts,
         related: [],
         runs: [...new Set(recordSources.map((source) => source.run_id))].map((id) =>
           runById.get(id)!,
         ),
-        stage: "new",
-        starred: false,
+        stage: work?.stage ?? "new",
+        starred: work?.starred ?? false,
         createdAt: record.created_at,
       };
     });

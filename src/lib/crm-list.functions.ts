@@ -1,12 +1,15 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { buildCrmList, readAllCrmPages } from "@/lib/crm-list";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { WorkflowDatabase } from "@/lib/crm-workflow.functions";
 
 export const listCrmRecords = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const db = context.supabase;
-    const [records, sources, runs] = await Promise.all([
+    const workflowDb = db as unknown as SupabaseClient<WorkflowDatabase>;
+    const [records, sources, runs, workingState] = await Promise.all([
       readAllCrmPages((from, to) =>
         db
           .from("crm_records")
@@ -31,6 +34,10 @@ export const listCrmRecords = createServerFn({ method: "GET" })
           .order("id")
           .range(from, to),
       ),
+      readAllCrmPages((from, to) =>
+        workflowDb.from("crm_record_working_state").select("*")
+          .eq("user_id", context.userId).order("record_id").range(from, to),
+      ),
     ]);
     const runIds = [...new Set(sources.map((source) => source.run_id))];
     const edges = [];
@@ -52,5 +59,5 @@ export const listCrmRecords = createServerFn({ method: "GET" })
       (record): record is typeof record & { entity_type: "company" | "person" } =>
         record.entity_type === "company" || record.entity_type === "person",
     );
-    return buildCrmList(primaryRecords, sources, runs, edges);
+    return buildCrmList(primaryRecords, sources, runs, edges, workingState);
   });

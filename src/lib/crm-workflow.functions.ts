@@ -7,7 +7,7 @@ import { crmWorkingPatchSchema, defaultCrmWorkingState } from "./crm-workflow";
 import type { CrmWorkingHistory, CrmWorkingState, CrmSaveResult } from "./crm-workflow";
 
 type Table<Row> = { Row: Row; Insert: never; Update: never; Relationships: [] };
-type WorkflowDatabase = Omit<Database, "public"> & {
+export type WorkflowDatabase = Omit<Database, "public"> & {
   public: Omit<Database["public"], "Tables" | "Functions"> & {
     Tables: Database["public"]["Tables"] & {
       crm_records: Table<{ id: string; user_id: string }>;

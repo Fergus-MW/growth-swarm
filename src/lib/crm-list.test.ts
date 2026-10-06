@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildCrmList, filterCrmList, readAllCrmPages } from "./crm-list";
 import type { CrmFilters, CrmRecordRow, CrmSourceRow } from "./crm-list";
+import { defaultCrmWorkingState } from "./crm-workflow";
 
 const records: CrmRecordRow[] = [
   {
@@ -57,6 +58,17 @@ const filters: CrmFilters = {
 };
 
 describe("completed CRM lists", () => {
+  it("applies saved CRM corrections and filters without changing research verdicts", () => {
+    const result = buildCrmList(records, sources, runs, edges, [{
+      ...defaultCrmWorkingState("company"), stage: "contacted", starred: true,
+      overrides: { name: "Corrected Acme", website: "", location: "Edinburgh" },
+    }]);
+    expect(result[0]).toMatchObject({ name: "Corrected Acme", website: "", location: "Edinburgh", stage: "contacted", starred: true });
+    expect(result[0]?.verdicts.map((verdict) => verdict.value)).toEqual(["excluded", "qualified"]);
+    expect(result[1]?.related[0]?.name).toBe("Corrected Acme");
+    expect(filterCrmList(result, { ...filters, query: "Edinburgh", stage: "contacted", starred: true })).toHaveLength(1);
+    expect(records[0]?.title).toBe("Acme");
+  });
   it("preserves every transferred company/person and their verdicts without fabricating missing data", () => {
     const result = buildCrmList(records, sources, runs, edges);
     expect(result.map((record) => record.id)).toEqual(["company", "person", "unknown"]);
