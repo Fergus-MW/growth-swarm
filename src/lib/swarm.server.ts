@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { callModelJson } from "./ai.server";
 import { webSearch, webSearchAvailable } from "./connectors.server";
+import { requiredAgreement } from "../../shared/consensus";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Db = any;
@@ -820,7 +821,7 @@ async function evaluateEpoch(db: Db, run: RunRow): Promise<"consensus" | "contin
   run.epoch = epoch;
   await db.from("runs").update({ epoch }).eq("id", run.id);
   const stats = await computeStats(db, run);
-  const needed = Math.ceil(run.threshold * run.swarm_size);
+  const needed = requiredAgreement(run.swarm_size, run.threshold);
   await emit(db, run.id, "epoch_opened", null, { epoch, revision: run.graph_revision, needed, roster: run.swarm_size, stats });
 
   const criteriaHashInput = `${run.completion_criteria}|${run.objective}`;
