@@ -11,6 +11,14 @@ function evaluationDatabase(run: RunRow) {
     from(table: string) {
       const filters: Record<string, unknown> = {};
       let counted = false;
+      let updateValues: Partial<RunRow> | undefined;
+      const applyUpdate = () => {
+        if (table !== "runs" || !updateValues) return true;
+        if (!Object.entries(filters).every(([key, value]) => run[key as keyof RunRow] === value))
+          return false;
+        Object.assign(run, updateValues);
+        return true;
+      };
       const query = {
         select(_columns?: string, options?: { count?: string; head?: boolean }) {
           counted = Boolean(options?.count);
@@ -30,7 +38,7 @@ function evaluationDatabase(run: RunRow) {
           return query;
         },
         update(values: Partial<RunRow>) {
-          if (table === "runs") Object.assign(run, values);
+          updateValues = values;
           return query;
         },
         insert(value: { kind?: string; payload?: Record<string, unknown> }) {
@@ -38,9 +46,15 @@ function evaluationDatabase(run: RunRow) {
           return query;
         },
         single() {
-          return Promise.resolve({ data: run, error: null });
+          applyUpdate();
+          return Promise.resolve({ data: { ...run }, error: null });
+        },
+        maybeSingle() {
+          const applied = applyUpdate();
+          return Promise.resolve({ data: applied ? { id: run.id } : null, error: null });
         },
         then(resolve: (value: { data: unknown[]; count: number; error: null }) => unknown) {
+          applyUpdate();
           const data =
             table === "nodes" && filters["entity_type"] === "company"
               ? [{ id: "qualified-company", fields: { status: "qualified" } }]
@@ -123,4 +137,21 @@ it("requires eight agents immediately above 7% rather than rounding the threshol
     needed: 8,
     total: 100,
   });
+});
+
+it("rejects completion when the committed graph changes during voting", async () => {
+  const state = run();
+  let changed = false;
+  model.mockImplementation(async () => {
+    if (!changed) {
+      state.graph_revision += 1;
+      changed = true;
+    }
+    return { decision: "yes", rationale: "Synthetic vote", gap_task: null };
+  });
+  const db = evaluationDatabase(state);
+  await expect(executeWindow(db, state.id)).rejects.toThrow();
+  expect(state.status).toBe("running");
+  expect(state.outcome).toBeNull();
+  expect(db.events.some((event) => event.kind === "run_finished")).toBe(false);
 });
