@@ -46,7 +46,13 @@ const EVAL_EVERY_TASKS = 6;
 // Small helpers
 // ---------------------------------------------------------------------------
 
-async function emit(db: Db, runId: string, kind: string, agentIndex: number | null, payload: Record<string, any>) {
+async function emit(
+  db: Db,
+  runId: string,
+  kind: string,
+  agentIndex: number | null,
+  payload: Record<string, any>,
+) {
   await db.from("events").insert({ run_id: runId, kind, agent_index: agentIndex, payload });
 }
 
@@ -63,7 +69,11 @@ async function charge(db: Db, run: RunRow, amount: number) {
 }
 
 function normalizeKey(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 180);
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .slice(0, 180);
 }
 
 async function insertTask(
@@ -84,7 +94,12 @@ async function insertTask(
   }
 }
 
-async function createNode(db: Db, run: RunRow, node: Record<string, any>, agentIndex: number | null) {
+async function createNode(
+  db: Db,
+  run: RunRow,
+  node: Record<string, any>,
+  agentIndex: number | null,
+) {
   const { data, error } = await db
     .from("nodes")
     .insert({ run_id: run.id, ...node, created_by_agent: agentIndex })
@@ -145,7 +160,15 @@ async function captureSearch(
   agentIndex: number,
   query: string,
   retrievalTargetId?: string,
-): Promise<{ chunks: Array<{ id: string; title: string; content: string; url: string }>; status: string }> {
+): Promise<{
+  chunks: Array<{ id: string; title: string; content: string; url: string }>;
+  status: string;
+}> {
+  if (!run.connectors.includes("web_search")) {
+    await emit(db, run.id, "search", agentIndex, { query, status: "disabled" });
+    return { chunks: [], status: "disabled" };
+  }
+
   const { data: invocation } = await db
     .from("invocations")
     .insert({
@@ -167,9 +190,17 @@ async function captureSearch(
   if (!outcome.ok) {
     await db
       .from("invocations")
-      .update({ status: outcome.status === "empty" ? "empty" : "failed", error: outcome.error, finished_at: new Date().toISOString() })
+      .update({
+        status: outcome.status === "empty" ? "empty" : "failed",
+        error: outcome.error,
+        finished_at: new Date().toISOString(),
+      })
       .eq("id", invocation.id);
-    await emit(db, run.id, "search", agentIndex, { query, status: outcome.status, error: outcome.error });
+    await emit(db, run.id, "search", agentIndex, {
+      query,
+      status: outcome.status,
+      error: outcome.error,
+    });
     return { chunks: [], status: outcome.status };
   }
 
@@ -196,16 +227,26 @@ async function captureSearch(
     if (id) {
       chunks.push({ id, title: item.title, content: item.content, url: item.url });
       if (retrievalTargetId) {
-        await createEdge(db, run, "retrieved_for", id, retrievalTargetId, { rationale: `Query: ${query}` });
+        await createEdge(db, run, "retrieved_for", id, retrievalTargetId, {
+          rationale: `Query: ${query}`,
+        });
       }
     }
   }
 
   await db
     .from("invocations")
-    .update({ status: "succeeded", item_count: chunks.length, finished_at: new Date().toISOString() })
+    .update({
+      status: "succeeded",
+      item_count: chunks.length,
+      finished_at: new Date().toISOString(),
+    })
     .eq("id", invocation.id);
-  await emit(db, run.id, "search", agentIndex, { query, status: "succeeded", results: chunks.length });
+  await emit(db, run.id, "search", agentIndex, {
+    query,
+    status: "succeeded",
+    results: chunks.length,
+  });
   return { chunks, status: "succeeded" };
 }
 
@@ -243,9 +284,19 @@ const qualifySchema = z.object({
   confidence: z.enum(["high", "medium", "low"]),
   free_text: z.string(),
   evidence: z.array(
-    z.object({ chunk_index: z.number(), quote: z.string(), polarity: z.enum(["supports", "contradicts", "qualifies"]) }),
+    z.object({
+      chunk_index: z.number(),
+      quote: z.string(),
+      polarity: z.enum(["supports", "contradicts", "qualifies"]),
+    }),
   ),
-  claims: z.array(z.object({ title: z.string(), body: z.string(), confidence: z.enum(["high", "medium", "low"]) })),
+  claims: z.array(
+    z.object({
+      title: z.string(),
+      body: z.string(),
+      confidence: z.enum(["high", "medium", "low"]),
+    }),
+  ),
 });
 
 const signalsSchema = z.object({
@@ -285,8 +336,27 @@ const voteSchema = z.object({
 });
 
 const gapSchema = z.object({
-  findings: z.array(z.object({ title: z.string(), body: z.string(), confidence: z.enum(["high", "medium", "low"]) })),
+  findings: z.array(
+    z.object({
+      title: z.string(),
+      body: z.string(),
+      confidence: z.enum(["high", "medium", "low"]),
+    }),
+  ),
   companies: z.array(z.string()),
+});
+
+const genericResearchSchema = z.object({
+  findings: z.array(
+    z.object({
+      title: z.string(),
+      body: z.string(),
+      chunk_index: z.number().int().min(0),
+      quote: z.string().min(1),
+    }),
+  ),
+  queries: z.array(z.string()),
+  gap: z.string().nullable(),
 });
 
 // ---------------------------------------------------------------------------
@@ -311,6 +381,93 @@ const RESEARCH_RULES = `Rules:
 - If the evidence is not there, say so explicitly (negative_finding / gap). Unknowns stay visible.
 - Keep inferred pain distinct from statements the company itself made.
 - An acquisition or vacancy is a clue, not proof of budget or buying intent.`;
+
+async function execGenericResearch(db: Db, run: RunRow, task: any, agent: number) {
+  const query = String(task.payload.query ?? task.payload.gap ?? run.objective);
+  const { chunks, status } = await captureSearch(db, run, task.id, agent, query);
+  const sourceText = chunks
+    .map(
+      (chunk, index) => `[${index}] ${chunk.title} — ${chunk.url}\n${chunk.content.slice(0, 2500)}`,
+    )
+    .join("\n\n");
+  const out = await callModelJson({
+    instructions:
+      "Research the supplied task directly. Extract only findings supported by the supplied source chunks. Cite a source index and an exact nonempty quote for every finding. Do not invent sources or force the task into company, sales, or contact research. Report missing evidence as a gap.",
+    input: `${briefText(run)}\n\nResearch question: ${query}\nSource status: ${status}\nCaptured sources:\n${sourceText || "(none available; report the evidence gap)"}\nSuggest at most four distinct follow-up searches only when decomposing the initial task.`,
+    schema: genericResearchSchema,
+    schemaName: "generic_research",
+    effort: "medium",
+  });
+  await charge(db, run, MODEL_CALL_COST);
+  let findings = 0;
+  for (const finding of out.findings.slice(0, 10)) {
+    const chunk = chunks[finding.chunk_index];
+    if (!chunk || !finding.quote.trim() || !chunk.content.includes(finding.quote)) continue;
+    const noteId = await createNode(
+      db,
+      run,
+      {
+        category: "note",
+        editorial_type: "evidence",
+        semantic_kind: "finding",
+        title: finding.title,
+        content: finding.body,
+        confidence: "medium",
+        provenance: "research",
+      },
+      agent,
+    );
+    if (!noteId) continue;
+    const { data: assertion } = await db
+      .from("assertions")
+      .insert({
+        run_id: run.id,
+        owner_node_id: noteId,
+        claim: finding.body,
+        confidence: "medium",
+        assessment_version: run.assessment_version,
+        created_by_agent: agent,
+        evidence: [{ chunk_id: chunk.id, quote: finding.quote, polarity: "supports" }],
+      })
+      .select("id")
+      .single();
+    await createEdge(db, run, "evidences", chunk.id, noteId, {
+      assertion_id: assertion?.id,
+      polarity: "supports",
+      rationale: finding.quote,
+    });
+    findings++;
+  }
+  if (out.gap || findings === 0) {
+    await createNode(
+      db,
+      run,
+      {
+        category: "note",
+        editorial_type: "summary",
+        semantic_kind: "research_gap",
+        title: "Unresolved research gap",
+        content: out.gap || "No findings had matching captured source evidence.",
+        confidence: "low",
+        provenance: "inference",
+      },
+      agent,
+    );
+  }
+  if (task.kind === "decompose") {
+    for (const next of out.queries.slice(0, 4)) {
+      await insertTask(
+        db,
+        run.id,
+        "discovery",
+        { query: next },
+        20,
+        `discovery:${normalizeKey(next)}`,
+      );
+    }
+  }
+  return `${findings} cited findings${out.gap ? `; gap: ${out.gap}` : ""}`;
+}
 
 async function execDecompose(db: Db, run: RunRow, task: any, agent: number) {
   const out = await callModelJson({
@@ -355,7 +512,14 @@ async function execDecompose(db: Db, run: RunRow, task: any, agent: number) {
   }
 
   for (const q of out.discovery_queries.slice(0, 8)) {
-    await insertTask(db, run.id, "discovery", { query: q, painNoteId }, 20, `discovery:${normalizeKey(q)}`);
+    await insertTask(
+      db,
+      run.id,
+      "discovery",
+      { query: q, painNoteId },
+      20,
+      `discovery:${normalizeKey(q)}`,
+    );
   }
   return `Decomposed brief into ${out.segments.length} segments and ${out.discovery_queries.length} discovery queries`;
 }
@@ -369,7 +533,9 @@ async function execDiscovery(db: Db, run: RunRow, task: any, agent: number) {
     return "Web search unavailable — capability gap recorded";
   }
 
-  const chunkList = chunks.map((c, i) => `[${i}] ${c.title} — ${c.url}\n${c.content.slice(0, 700)}`).join("\n\n");
+  const chunkList = chunks
+    .map((c, i) => `[${i}] ${c.title} — ${c.url}\n${c.content.slice(0, 700)}`)
+    .join("\n\n");
   const out = await callModelJson({
     instructions: `You are a discovery agent finding companies that plausibly hold a stated pain, inside a stated universe. Record candidates even with partial fields. Excluded or irrelevant results stay out of the candidate list. ${RESEARCH_RULES}`,
     input: `${briefText(run)}\n\nSearch query: ${query}\n\nSource chunks:\n${chunkList || "(no results returned)"}\n\nList candidate companies found in these results. If none, say so in negative_finding. Suggest up to 3 follow-up queries that are semantically distinct, not rephrasings.`,
@@ -392,7 +558,13 @@ async function execDiscovery(db: Db, run: RunRow, task: any, agent: number) {
 
     const evidence =
       c.evidence_chunk_index != null && chunks[c.evidence_chunk_index]
-        ? [{ chunk_id: chunks[c.evidence_chunk_index]!.id, quote: c.evidence_quote ?? "", polarity: "supports" }]
+        ? [
+            {
+              chunk_id: chunks[c.evidence_chunk_index]!.id,
+              quote: c.evidence_quote ?? "",
+              polarity: "supports",
+            },
+          ]
         : [];
 
     if (!companyId) {
@@ -433,12 +605,26 @@ async function execDiscovery(db: Db, run: RunRow, task: any, agent: number) {
           polarity: "supports",
         });
       }
-      await insertTask(db, run.id, "qualify", { companyId, companyName: c.name, painNoteId }, 30, `qualify:${companyId}`);
+      await insertTask(
+        db,
+        run.id,
+        "qualify",
+        { companyId, companyName: c.name, painNoteId },
+        30,
+        `qualify:${companyId}`,
+      );
     }
   }
 
   for (const q of out.more_queries.slice(0, 3)) {
-    await insertTask(db, run.id, "discovery", { query: q, painNoteId }, 40, `discovery:${normalizeKey(q)}`);
+    await insertTask(
+      db,
+      run.id,
+      "discovery",
+      { query: q, painNoteId },
+      40,
+      `discovery:${normalizeKey(q)}`,
+    );
   }
   return `Discovery "${query}": ${created} new companies (${out.companies.length} candidates)${out.negative_finding ? `; negative: ${out.negative_finding}` : ""}`;
 }
@@ -460,15 +646,30 @@ async function execQualify(db: Db, run: RunRow, task: any, agent: number) {
   const chunkIds = (linkedEdges ?? []).map((e: any) => e.from_node);
   let chunks: Array<{ id: string; title: string; content: string }> = [];
   if (chunkIds.length > 0) {
-    const { data } = await db.from("nodes").select("id, title, content").in("id", chunkIds).limit(12);
+    const { data } = await db
+      .from("nodes")
+      .select("id, title, content")
+      .in("id", chunkIds)
+      .limit(12);
     chunks = data ?? [];
   }
   if (webSearchAvailable() && task.outbound_calls < MAX_OUTBOUND_PER_TASK) {
-    const fresh = await captureSearch(db, run, task.id, agent, `${company.title} ${run.pain ?? run.objective}`, companyId);
-    chunks = chunks.concat(fresh.chunks.map((c) => ({ id: c.id, title: c.title, content: c.content })));
+    const fresh = await captureSearch(
+      db,
+      run,
+      task.id,
+      agent,
+      `${company.title} ${run.pain ?? run.objective}`,
+      companyId,
+    );
+    chunks = chunks.concat(
+      fresh.chunks.map((c) => ({ id: c.id, title: c.title, content: c.content })),
+    );
   }
 
-  const chunkList = chunks.map((c, i) => `[${i}] ${c.title}\n${(c.content ?? "").slice(0, 700)}`).join("\n\n");
+  const chunkList = chunks
+    .map((c, i) => `[${i}] ${c.title}\n${(c.content ?? "").slice(0, 700)}`)
+    .join("\n\n");
   const out = await callModelJson({
     instructions: `You are a qualification agent. Judge whether the company plausibly holds the stated pain, using only the evidence chunks. A query mentioning the company is not proof. Look for contrary evidence. ${RESEARCH_RULES}`,
     input: `${briefText(run)}\n\nCompany: ${company.title}\nKnown fields: ${JSON.stringify(company.fields)}\nExisting notes: ${company.free_text ?? "(none)"}\n\nEvidence chunks:\n${chunkList || "(no evidence captured yet)"}\n\nReturn a verdict, rationale, updated company free-text (markdown), per-chunk evidence with verbatim quotes and polarity, and atomic claims worth their own note.`,
@@ -521,8 +722,22 @@ async function execQualify(db: Db, run: RunRow, task: any, agent: number) {
       rationale: out.rationale,
       score: out.confidence === "high" ? 1 : out.confidence === "medium" ? 0.7 : 0.4,
     });
-    await insertTask(db, run.id, "signals", { companyId, companyName: company.title }, 35, `signals:${companyId}:v${run.assessment_version}`);
-    await insertTask(db, run.id, "contacts", { companyId, companyName: company.title }, 35, `contacts:${companyId}:v${run.assessment_version}`);
+    await insertTask(
+      db,
+      run.id,
+      "signals",
+      { companyId, companyName: company.title },
+      35,
+      `signals:${companyId}:v${run.assessment_version}`,
+    );
+    await insertTask(
+      db,
+      run.id,
+      "contacts",
+      { companyId, companyName: company.title },
+      35,
+      `contacts:${companyId}:v${run.assessment_version}`,
+    );
   }
 
   for (const claim of out.claims.slice(0, 4)) {
@@ -559,7 +774,9 @@ async function execSignals(db: Db, run: RunRow, task: any, agent: number) {
   );
   if (status === "unavailable") return "Web search unavailable — capability gap recorded";
 
-  const chunkList = chunks.map((c, i) => `[${i}] ${c.title} — ${c.url}\n${c.content.slice(0, 700)}`).join("\n\n");
+  const chunkList = chunks
+    .map((c, i) => `[${i}] ${c.title} — ${c.url}\n${c.content.slice(0, 700)}`)
+    .join("\n\n");
   const out = await callModelJson({
     instructions: `You are a demand-signal agent. Find dated signals that the company feels the pain now: hiring, acquisitions/funding, leadership changes, statements of the problem, regulatory deadlines, migrations/RFPs, peer adoption, public complaints. Never invent a date for an undated snippet — keep event_date null and name the date basis. ${RESEARCH_RULES}`,
     input: `${briefText(run)}\n\nCompany: ${companyName}\n\nSource chunks:\n${chunkList || "(no results)"}\n\nReturn dated signal interpretations with evidence. If nothing, say so in negative_finding.`,
@@ -604,7 +821,10 @@ async function execSignals(db: Db, run: RunRow, task: any, agent: number) {
         })
         .select("id")
         .single();
-      await createEdge(db, run, "evidences", chunk.id, noteId, { assertion_id: assertion?.id, polarity: "supports" });
+      await createEdge(db, run, "evidences", chunk.id, noteId, {
+        assertion_id: assertion?.id,
+        polarity: "supports",
+      });
     }
     await createEdge(db, run, "exhibits", companyId, noteId, { rationale: s.interpretation });
   }
@@ -625,7 +845,9 @@ async function execContacts(db: Db, run: RunRow, task: any, agent: number) {
   );
   if (status === "unavailable") return "Web search unavailable — capability gap recorded";
 
-  const chunkList = chunks.map((c, i) => `[${i}] ${c.title} — ${c.url}\n${c.content.slice(0, 700)}`).join("\n\n");
+  const chunkList = chunks
+    .map((c, i) => `[${i}] ${c.title} — ${c.url}\n${c.content.slice(0, 700)}`)
+    .join("\n\n");
   const out = await callModelJson({
     instructions: `You are a contacts agent. Identify the founder or current CEO, and the person closest to the stated pain (process owner / budget holder). A same-name match must be constrained by company evidence. Historical or negated employment does not count as current. If a name cannot be confirmed, record the gap — never invent a person. ${RESEARCH_RULES}`,
     input: `${briefText(run)}\n\nCompany: ${companyName}\n\nSource chunks:\n${chunkList || "(no results)"}\n\nReturn confirmed people with role evidence and a pain-specific contact rationale.`,
@@ -669,7 +891,10 @@ async function execContacts(db: Db, run: RunRow, task: any, agent: number) {
       })
       .select("id")
       .single();
-    await createEdge(db, run, "evidences", chunk.id, personId, { assertion_id: assertion?.id, polarity: "supports" });
+    await createEdge(db, run, "evidences", chunk.id, personId, {
+      assertion_id: assertion?.id,
+      polarity: "supports",
+    });
     await createEdge(db, run, "works_at", personId, companyId, { rationale: p.role });
     if (task.payload.painNoteId) {
       await createEdge(db, run, "best_contact_for", personId, task.payload.painNoteId, {
@@ -683,7 +908,9 @@ async function execContacts(db: Db, run: RunRow, task: any, agent: number) {
 async function execGap(db: Db, run: RunRow, task: any, agent: number) {
   const gap: string = task.payload.gap ?? "unspecified gap";
   const { chunks } = await captureSearch(db, run, task.id, agent, gap);
-  const chunkList = chunks.map((c, i) => `[${i}] ${c.title}\n${c.content.slice(0, 600)}`).join("\n\n");
+  const chunkList = chunks
+    .map((c, i) => `[${i}] ${c.title}\n${c.content.slice(0, 600)}`)
+    .join("\n\n");
   const out = await callModelJson({
     instructions: `You are an integrity agent repairing a specific research gap. ${RESEARCH_RULES}`,
     input: `${briefText(run)}\n\nGap to repair: ${gap}\n\nSource chunks:\n${chunkList || "(none)"}\n\nWrite atomic findings. Name any companies the findings attach to.`,
@@ -696,7 +923,14 @@ async function execGap(db: Db, run: RunRow, task: any, agent: number) {
     await createNode(
       db,
       run,
-      { category: "note", editorial_type: "evidence", title: f.title, content: f.body, confidence: f.confidence, provenance: "research" },
+      {
+        category: "note",
+        editorial_type: "evidence",
+        title: f.title,
+        content: f.body,
+        confidence: f.confidence,
+        provenance: "research",
+      },
       agent,
     );
   }
@@ -740,31 +974,38 @@ async function claimTask(db: Db, run: RunRow, agent: number): Promise<any | null
 }
 
 async function runOneTask(db: Db, run: RunRow, task: any, agent: number) {
-  await emit(db, run.id, "task_started", agent, { taskId: task.id, kind: task.kind, payload: task.payload });
+  await emit(db, run.id, "task_started", agent, {
+    taskId: task.id,
+    kind: task.kind,
+    payload: task.payload,
+  });
   try {
     let summary: string;
-    switch (task.kind) {
-      case "decompose":
-        summary = await execDecompose(db, run, task, agent);
-        break;
-      case "discovery":
-        summary = await execDiscovery(db, run, task, agent);
-        break;
-      case "qualify":
-        summary = await execQualify(db, run, task, agent);
-        break;
-      case "signals":
-        summary = await execSignals(db, run, task, agent);
-        break;
-      case "contacts":
-        summary = await execContacts(db, run, task, agent);
-        break;
-      case "gap":
-        summary = await execGap(db, run, task, agent);
-        break;
-      default:
-        summary = `Unknown task kind ${task.kind}`;
-    }
+    if (run.profile === "blank") {
+      summary = await execGenericResearch(db, run, task, agent);
+    } else
+      switch (task.kind) {
+        case "decompose":
+          summary = await execDecompose(db, run, task, agent);
+          break;
+        case "discovery":
+          summary = await execDiscovery(db, run, task, agent);
+          break;
+        case "qualify":
+          summary = await execQualify(db, run, task, agent);
+          break;
+        case "signals":
+          summary = await execSignals(db, run, task, agent);
+          break;
+        case "contacts":
+          summary = await execContacts(db, run, task, agent);
+          break;
+        case "gap":
+          summary = await execGap(db, run, task, agent);
+          break;
+        default:
+          summary = `Unknown task kind ${task.kind}`;
+      }
     await db
       .from("tasks")
       .update({ status: "done", result_summary: summary, completed_at: new Date().toISOString() })
@@ -775,9 +1016,19 @@ async function runOneTask(db: Db, run: RunRow, task: any, agent: number) {
     const failed = task.attempts + 1 >= MAX_ATTEMPTS;
     await db
       .from("tasks")
-      .update({ status: failed ? "failed" : "open", result_summary: message, owner_agent: null, claim_token: null })
+      .update({
+        status: failed ? "failed" : "open",
+        result_summary: message,
+        owner_agent: null,
+        claim_token: null,
+      })
       .eq("id", task.id);
-    await emit(db, run.id, "task_error", agent, { taskId: task.id, kind: task.kind, error: message, failed });
+    await emit(db, run.id, "task_error", agent, {
+      taskId: task.id,
+      kind: task.kind,
+      error: message,
+      failed,
+    });
     throw error;
   }
 }
@@ -802,9 +1053,21 @@ async function computeStats(db: Db, run: RunRow) {
     .eq("run_id", run.id)
     .eq("category", "primary_entity")
     .eq("entity_type", "person");
-  const { data: chunkRows } = await db.from("nodes").select("id").eq("run_id", run.id).eq("category", "source_chunk");
-  const { count: openTasks } = await db.from("tasks").select("id", { count: "exact", head: true }).eq("run_id", run.id).eq("status", "open");
-  const { count: doneTasks } = await db.from("tasks").select("id", { count: "exact", head: true }).eq("run_id", run.id).eq("status", "done");
+  const { data: chunkRows } = await db
+    .from("nodes")
+    .select("id")
+    .eq("run_id", run.id)
+    .eq("category", "source_chunk");
+  const { count: openTasks } = await db
+    .from("tasks")
+    .select("id", { count: "exact", head: true })
+    .eq("run_id", run.id)
+    .eq("status", "open");
+  const { count: doneTasks } = await db
+    .from("tasks")
+    .select("id", { count: "exact", head: true })
+    .eq("run_id", run.id)
+    .eq("status", "done");
   return {
     companies: all.length,
     qualified: qualified.length,
@@ -816,16 +1079,36 @@ async function computeStats(db: Db, run: RunRow) {
   };
 }
 
-async function evaluateEpoch(db: Db, run: RunRow): Promise<"consensus" | "continue"> {
+async function evaluateEpoch(db: Db, run: RunRow): Promise<"consensus" | "continue" | "failed"> {
   const epoch = run.epoch + 1;
   run.epoch = epoch;
   await db.from("runs").update({ epoch }).eq("id", run.id);
   const stats = await computeStats(db, run);
   const needed = requiredAgreement(run.swarm_size, run.threshold);
-  await emit(db, run.id, "epoch_opened", null, { epoch, revision: run.graph_revision, needed, roster: run.swarm_size, stats });
+  await emit(db, run.id, "epoch_opened", null, {
+    epoch,
+    revision: run.graph_revision,
+    needed,
+    roster: run.swarm_size,
+    stats,
+  });
 
   const criteriaHashInput = `${run.completion_criteria}|${run.objective}`;
-  const voterInput = `${briefText(run)}\n\nMeasured graph statistics at revision ${run.graph_revision}:\n${JSON.stringify(stats)}\n\nCriteria hash input: ${criteriaHashInput.length} chars. Vote yes only if the completion criteria are genuinely met; otherwise vote no and name one specific gap task.`;
+  const { data: evidenceNodes } = await db
+    .from("nodes")
+    .select("id, category, title, content, free_text, fields, locator")
+    .eq("run_id", run.id)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  const excerpts = (evidenceNodes ?? []).map((node: any) => ({
+    id: node.id,
+    category: node.category,
+    title: node.title,
+    fields: node.fields,
+    locator: node.locator,
+    excerpt: String(node.content ?? node.free_text ?? "").slice(0, 1200),
+  }));
+  const voterInput = `${briefText(run)}\n\nMeasured graph statistics at revision ${run.graph_revision}:\n${JSON.stringify(stats)}\n\nBounded graph excerpts at the same revision:\n${JSON.stringify(excerpts)}\n\nCriteria hash input: ${criteriaHashInput.length} chars. Vote yes only if the completion criteria are genuinely met with captured evidence; otherwise vote no and name one specific gap task. Missing evidence is not success.`;
 
   const votes: Array<{ decision: string; rationale: string; gap_task: string | null }> = [];
   const roster = Math.min(run.swarm_size, 100);
@@ -861,9 +1144,20 @@ async function evaluateEpoch(db: Db, run: RunRow): Promise<"consensus" | "contin
     await charge(db, run, MODEL_CALL_COST * slice.length);
   }
 
+  if (votes.length === 0) {
+    await emit(db, run.id, "run_error", null, { error: "No agent evaluation succeeded." });
+    return "failed";
+  }
+
   const yes = votes.filter((v) => v.decision === "yes").length;
   const gatesPass = stats.qualified > 0; // deterministic gate: at least one qualified company
-  await emit(db, run.id, "epoch_closed", null, { epoch, yes, needed, total: votes.length, gatesPass });
+  await emit(db, run.id, "epoch_closed", null, {
+    epoch,
+    yes,
+    needed,
+    total: votes.length,
+    gatesPass,
+  });
 
   if (yes >= needed && gatesPass) return "consensus";
 
@@ -903,7 +1197,10 @@ async function checkpoint(db: Db, run: RunRow, generation: number) {
  * One bounded execution window. The live screen calls this repeatedly while
  * the run is live — if the stream drops, new work stops (interactive v1).
  */
-export async function executeWindow(db: Db, runId: string): Promise<{ status: string; stats: Record<string, any> }> {
+export async function executeWindow(
+  db: Db,
+  runId: string,
+): Promise<{ status: string; stats: Record<string, any> }> {
   const { data: run } = await db.from("runs").select("*").eq("id", runId).single();
   if (!run) throw new Error("Run not found");
   if (run.status === "stopping" || (run.status === "running" && run.stop_requested)) {
@@ -918,15 +1215,25 @@ export async function executeWindow(db: Db, runId: string): Promise<{ status: st
   let sinceEval = 0;
   let generation = 1;
 
-  const { count: existingTasks } = await db.from("tasks").select("id", { count: "exact", head: true }).eq("run_id", runId);
+  const { count: existingTasks } = await db
+    .from("tasks")
+    .select("id", { count: "exact", head: true })
+    .eq("run_id", runId);
   if ((existingTasks ?? 0) === 0) {
     await insertTask(db, runId, "decompose", {}, 1, `decompose:v${run.assessment_version}`);
-    await emit(db, runId, "run_started", null, { objective: run.objective, swarmSize: run.swarm_size });
+    await emit(db, runId, "run_started", null, {
+      objective: run.objective,
+      swarmSize: run.swarm_size,
+    });
   }
 
   while (Date.now() < deadline) {
     // Control checks: stop flag, budgets, wall clock.
-    const { data: fresh } = await db.from("runs").select("stop_requested, status, spend, started_at").eq("id", runId).single();
+    const { data: fresh } = await db
+      .from("runs")
+      .select("stop_requested, status, spend, started_at")
+      .eq("id", runId)
+      .single();
     if (!fresh) break;
     if (fresh.stop_requested || fresh.status === "stopping") {
       await finishRun(db, run, "stopped_by_user");
@@ -937,22 +1244,31 @@ export async function executeWindow(db: Db, runId: string): Promise<{ status: st
       await finishRun(db, run, "budget_cost");
       break;
     }
-    if (run.started_at && Date.now() - new Date(run.started_at).getTime() > run.time_limit_sec * 1000) {
+    if (
+      run.started_at &&
+      Date.now() - new Date(run.started_at).getTime() > run.time_limit_sec * 1000
+    ) {
       await finishRun(db, run, "budget_wall_clock");
       break;
     }
 
     // Claim and run a batch of tasks concurrently.
-    const claims = await Promise.all(Array.from({ length: CONCURRENCY }, (_, i) => claimTask(db, run, i)));
+    const claims = await Promise.all(
+      Array.from({ length: CONCURRENCY }, (_, i) => claimTask(db, run, i)),
+    );
     const batch = claims.filter(Boolean);
     if (batch.length === 0) {
       // Frontier exhausted: evaluate; if still no work after gaps, finish.
       const verdict = await evaluateEpoch(db, run);
-      if (verdict === "consensus") {
-        await finishRun(db, run, "consensus");
+      if (verdict !== "continue") {
+        await finishRun(db, run, verdict);
         break;
       }
-      const { count: openNow } = await db.from("tasks").select("id", { count: "exact", head: true }).eq("run_id", runId).eq("status", "open");
+      const { count: openNow } = await db
+        .from("tasks")
+        .select("id", { count: "exact", head: true })
+        .eq("run_id", runId)
+        .eq("status", "open");
       if ((openNow ?? 0) === 0) {
         await finishRun(db, run, "criteria_unmet");
         break;
@@ -960,7 +1276,9 @@ export async function executeWindow(db: Db, runId: string): Promise<{ status: st
       continue;
     }
 
-    const results = await Promise.allSettled(batch.map((task: any, i: number) => runOneTask(db, run, task, task.owner_agent ?? i)));
+    const results = await Promise.allSettled(
+      batch.map((task: any, i: number) => runOneTask(db, run, task, task.owner_agent ?? i)),
+    );
     const failures = results.filter((r) => r.status === "rejected");
     if (failures.length === results.length) {
       // Systemic failure (e.g. model access denied): stop, don't burn budget.
@@ -977,8 +1295,8 @@ export async function executeWindow(db: Db, runId: string): Promise<{ status: st
     if (sinceEval >= EVAL_EVERY_TASKS) {
       sinceEval = 0;
       const verdict = await evaluateEpoch(db, run);
-      if (verdict === "consensus") {
-        await finishRun(db, run, "consensus");
+      if (verdict !== "continue") {
+        await finishRun(db, run, verdict);
         break;
       }
     }
@@ -993,7 +1311,11 @@ export async function executeWindow(db: Db, runId: string): Promise<{ status: st
 async function finishRun(db: Db, run: RunRow, outcome: string) {
   await db
     .from("runs")
-    .update({ status: outcome === "consensus" ? "completed" : "ended", outcome, ended_at: new Date().toISOString() })
+    .update({
+      status: outcome === "consensus" ? "completed" : "ended",
+      outcome,
+      ended_at: new Date().toISOString(),
+    })
     .eq("id", run.id);
   run.status = outcome === "consensus" ? "completed" : "ended";
   run.outcome = outcome;
