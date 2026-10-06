@@ -112,6 +112,22 @@ describe("CRM page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(mocks.refetch).toHaveBeenCalled();
   });
+  it("hides cached records and source-run names when a refresh loses access", () => {
+    const view = render(<LeadsPage />);
+    expect(screen.getByRole("link", { name: "Acme" })).toBeVisible();
+    mocks.query.mockReturnValue({
+      data: [record],
+      isPending: false,
+      isError: true,
+      refetch: mocks.refetch,
+    });
+    view.rerender(<LeadsPage />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Cached records are hidden");
+    expect(screen.queryByRole("link", { name: "Acme" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Test research")).not.toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.queryByText(/No companies from completed research/)).not.toBeInTheDocument();
+  });
   it("paginates keyboard-accessible links while totals cover every fetched record", () => {
     mocks.query.mockReturnValue({
       data: Array.from({ length: 105 }, (_, index) => ({

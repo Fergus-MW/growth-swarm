@@ -77,7 +77,8 @@ export function LeadsPage() {
     direction: 1,
   });
   const [page, setPage] = useState(0);
-  const records = useMemo(() => data ?? [], [data]);
+  // A denied refresh must not keep cached names/contact data visible.
+  const records = useMemo(() => (isError ? [] : (data ?? [])), [data, isError]);
   const runs = useMemo(
     () => [
       ...new Map(
@@ -164,7 +165,9 @@ export function LeadsPage() {
               >
                 {value === "company" ? "Companies" : "People"}{" "}
                 <span className="ml-1 font-data">
-                  {isPending ? "…" : scoped.filter((record) => record.entityType === value).length}
+                  {isPending || isError
+                    ? "…"
+                    : scoped.filter((record) => record.entityType === value).length}
                 </span>
               </button>
             ))}
@@ -249,9 +252,7 @@ export function LeadsPage() {
         </div>
         {isError && (
           <div role="alert" className="mt-4 rounded-md border border-destructive p-4 text-sm">
-            {data
-              ? "CRM refresh failed. The last loaded records are shown."
-              : "Could not load CRM records."}{" "}
+            Could not load CRM records. Cached records are hidden until access can be verified.{" "}
             <button onClick={() => void refetch()} disabled={isFetching} className="ml-2 underline">
               Retry
             </button>
@@ -266,7 +267,7 @@ export function LeadsPage() {
               />
               Loading CRM records…
             </div>
-          ) : !data && isError ? null : !kindCount ? (
+          ) : isError ? null : !kindCount ? (
             <div className="p-8 text-center text-sm text-muted-foreground">
               No {kind === "company" ? "companies" : "people"} from completed research{" "}
               {runId ? "in this run" : "yet"}. Records appear after the completed result transfers
