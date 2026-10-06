@@ -14,6 +14,22 @@ function harness() {
   const run=store.create(config,crypto.randomUUID());
   return {dir,store,run,cleanup:()=>{store.close();rmSync(dir,{recursive:true,force:true});}};
 }
+test('claiming another task preserves a quiet agent history through the execution checkpoint',()=>{
+ const h=harness();try{
+  const fence=h.store.claimExecution(h.run.id);
+  h.store.mutate(h.run.id,fence,state=>{
+   state.traces.push({id:'quiet-agent',agentId:'agent-5',timestamp:'2026-10-06T12:00:00Z',status:'waiting',summary:'Waiting for independent evidence.'});
+   for(let index=0;index<1000;index++)state.traces.push({id:`busy-${index}`,agentId:'agent-1',timestamp:'2026-10-06T12:00:01Z',status:'working',summary:`Source action ${index}`});
+   state.tasks.push({id:'next-task',kind:'discovery',payload:{segment:'x'},targetIds:[],priority:1,status:'open',attempts:0,owner:null,leaseExpiresAt:null,claimToken:null,dedupeKey:'next-task',assessmentVersion:state.run.assessmentVersion,createdAt:'2026-10-06T12:00:02Z',calls:0});
+   assert.equal(claimTask(state,'agent-1')?.id,'next-task');
+  });
+  h.store.checkpoint(h.run.id);
+  const traces=h.store.readCheckpoint(h.run.id).traces;
+  assert.equal(traces.find(trace=>trace.id==='quiet-agent')?.summary,'Waiting for independent evidence.');
+  assert.equal(traces.filter(trace=>trace.agentId==='agent-1').length,100);
+  assert.equal(traces.at(-1)?.status,'working');
+ }finally{h.cleanup();}
+});
 test('five-agent fictional research captures evidence before writes and reaches honest configured-roster consensus',async()=>{
   const h=harness();try{
     const fence=h.store.claimExecution(h.run.id);await executeRun(h.store,h.run.id,fence,new AbortController().signal);

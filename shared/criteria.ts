@@ -11,7 +11,7 @@ export function explicitCriteria(text:string):Partial<CompletionCriteria>{
  const result:Partial<CompletionCriteria>={};
  for(const [key,pattern] of Object.entries(patterns)){
   pattern.lastIndex=0;
-  const values=[...text.matchAll(pattern)].map(m=>words[m[1].toLowerCase()]??Number(m[1]));
+  const values=[...text.matchAll(pattern)].map(m=>words[m[1]!.toLowerCase()]??Number(m[1]));
   if(values.length)(result as Record<string,unknown>)[key]=Math.max(...values);
  }
  if(/(?:every|each|all)[^.\n]*(?:founder|ceo)[^.\n]*(?:another|other|second)[^.\n]*contact/i.test(text))result.requireContacts=true;
