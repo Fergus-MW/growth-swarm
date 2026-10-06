@@ -960,7 +960,7 @@ export async function executeWindow(db: Db, runId: string): Promise<{ status: st
       continue;
     }
 
-    const results = await Promise.allSettled(batch.map((task: any, i: number) => runOneTask(db, run, task, i)));
+    const results = await Promise.allSettled(batch.map((task: any, i: number) => runOneTask(db, run, task, task.owner_agent ?? i)));
     const failures = results.filter((r) => r.status === "rejected");
     if (failures.length === results.length) {
       // Systemic failure (e.g. model access denied): stop, don't burn budget.

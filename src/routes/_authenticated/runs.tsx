@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -11,18 +11,24 @@ export const Route = createFileRoute("/_authenticated/runs")({
   head: () => ({
     meta: [
       { title: "Research runs — Auto Research" },
-      { name: "description", content: "Your research swarm runs: outcomes, progress, spend, and lineage." },
+      {
+        name: "description",
+        content: "Your research swarm runs: outcomes, progress, spend, and lineage.",
+      },
       { property: "og:title", content: "Research runs — Auto Research" },
-      { property: "og:description", content: "Your research swarm runs: outcomes, progress, spend, and lineage." },
+      {
+        property: "og:description",
+        content: "Your research swarm runs: outcomes, progress, spend, and lineage.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
   }),
-  component: RunsPage,
+  component: RunsLayout,
 });
 
 const OUTCOME_LABEL: Record<string, string> = {
-  consensus: "Consensus reached",
+  consensus: "Completed",
   stopped_by_user: "Stopped by you",
   budget_cost: "Cost budget reached",
   budget_wall_clock: "Time limit reached",
@@ -30,6 +36,11 @@ const OUTCOME_LABEL: Record<string, string> = {
   failed: "Failed",
   disconnected: "Disconnected",
 };
+
+function RunsLayout() {
+  const onIndex = useRouterState({ select: (state) => state.matches.at(-1)?.routeId === Route.id });
+  return onIndex ? <RunsPage /> : <Outlet />;
+}
 
 function RunsPage() {
   const navigate = useNavigate();
@@ -90,8 +101,13 @@ function RunsPage() {
 
         {runs && runs.length === 0 && (
           <div className="mt-16 rounded-xl border border-dashed border-border p-12 text-center">
-            <p className="text-muted-foreground">No runs yet. State a pain and a universe, and launch your first swarm.</p>
-            <Link to="/setup" className="mt-4 inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground">
+            <p className="text-muted-foreground">
+              No runs yet. State a pain and a universe, and launch your first swarm.
+            </p>
+            <Link
+              to="/setup"
+              className="mt-4 inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground"
+            >
               <Plus className="h-4 w-4" /> Create a run
             </Link>
           </div>
@@ -99,7 +115,15 @@ function RunsPage() {
 
         <div className="mt-6 space-y-3">
           {runs?.map((run) => {
-            const stats = (run.stats ?? {}) as { companies?: number; qualified?: number; signals?: number; people?: number; chunks?: number; openTasks?: number; doneTasks?: number };
+            const stats = (run.stats ?? {}) as {
+              companies?: number;
+              qualified?: number;
+              signals?: number;
+              people?: number;
+              chunks?: number;
+              openTasks?: number;
+              doneTasks?: number;
+            };
             const live = run.status === "running" || run.status === "stopping";
             return (
               <div key={run.id} className="rounded-lg border border-border bg-card p-5">
@@ -114,26 +138,47 @@ function RunsPage() {
                     </Link>
                     <div className="mt-1 flex flex-wrap items-center gap-2 font-data text-xs text-muted-foreground">
                       <span className={live ? "text-primary" : ""}>
-                        {live && <span className="animate-pulse-dot mr-1 inline-block h-1.5 w-1.5 rounded-full bg-primary align-middle" />}
-                        {run.status === "draft" ? "Draft" : run.outcome ? (OUTCOME_LABEL[run.outcome] ?? run.outcome) : run.status}
+                        {live && (
+                          <span className="animate-pulse-dot mr-1 inline-block h-1.5 w-1.5 rounded-full bg-primary align-middle" />
+                        )}
+                        {run.status === "draft"
+                          ? "Draft"
+                          : run.outcome
+                            ? (OUTCOME_LABEL[run.outcome] ?? run.outcome)
+                            : run.status}
                       </span>
                       <span>·</span>
-                      <span>{run.swarm_size} agents @ {Math.round(run.threshold * 100)}%</span>
+                      <span>
+                        {run.swarm_size} agents @ {Math.round(run.threshold * 100)}%
+                      </span>
                       <span>·</span>
-                      <span>${Number(run.spend).toFixed(3)} / ${Number(run.cost_cap).toFixed(2)}</span>
+                      <span>
+                        ${Number(run.spend).toFixed(3)} / ${Number(run.cost_cap).toFixed(2)}
+                      </span>
                       {run.parent_run_id && (
                         <>
                           <span>·</span>
-                          <span className="inline-flex items-center gap-1"><GitBranch className="h-3 w-3" /> child run</span>
+                          <span className="inline-flex items-center gap-1">
+                            <GitBranch className="h-3 w-3" /> child run
+                          </span>
                         </>
                       )}
                     </div>
-                    {(stats["companies"] != null) && (
+                    {stats["companies"] != null && (
                       <div className="mt-2 flex flex-wrap gap-3 font-data text-xs text-muted-foreground">
-                        <span><span className="text-entity">{stats.qualified ?? 0}</span>/{stats.companies ?? 0} qualified</span>
-                        <span><span className="text-note">{stats.signals ?? 0}</span> signals</span>
-                        <span><span className="text-entity">{stats.people ?? 0}</span> people</span>
-                        <span><span className="text-chunk">{stats.chunks ?? 0}</span> sources</span>
+                        <span>
+                          <span className="text-entity">{stats.qualified ?? 0}</span>/
+                          {stats.companies ?? 0} qualified
+                        </span>
+                        <span>
+                          <span className="text-note">{stats.signals ?? 0}</span> signals
+                        </span>
+                        <span>
+                          <span className="text-entity">{stats.people ?? 0}</span> people
+                        </span>
+                        <span>
+                          <span className="text-chunk">{stats.chunks ?? 0}</span> sources
+                        </span>
                       </div>
                     )}
                   </div>
