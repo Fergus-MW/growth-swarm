@@ -5,7 +5,7 @@ The user narrowed the PRD to a standalone local development backend using Tavily
 | Area | Local implementation | Verification / limitation |
 | --- | --- | --- |
 | Setup and run catalogue | Editable brief, criteria, source selection, 5–100 agents, budgets, run history | API admission validation and browser workflow tests |
-| Research execution | Tavily snippets, Gemini structured research and evaluation, concurrent fair queues | Fixture-tested; real Gemini model availability checked before admission; paid research not run |
+| Research execution | Tavily snippets, OpenAI structured research and evaluation, concurrent fair queues | Fixture-tested; real OpenAI model availability checked before admission; paid research not run |
 | Graph | Primary entities with typed fields/prose, authored notes, immutable source chunks, evidence and semantic edges | Evidence hashes/spans, field shapes, identity, endpoint and profile gate tests |
 | Capture | Complete returned JSON saved before model context, per-invocation source associations, bounded transport | Crash replay and duplicate registration tests; oversized responses retained as partial |
 | Consensus | Fixed graph revision, independent evaluator requests, configured-roster denominator, deterministic gates | Quorum and unmet-criteria fixture tests; qualitative entailment remains a model/human judgment |
