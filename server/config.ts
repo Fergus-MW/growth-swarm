@@ -1,4 +1,4 @@
-import { criteriaConflicts } from '../shared/criteria.ts';
+import { criteriaConflicts, criteriaFromText } from '../shared/criteria.ts';
 import { createHash } from 'node:crypto';
 import type { Connector, RunConfig, SchemaSnapshot } from '../shared/types.ts';
 
@@ -47,6 +47,16 @@ export function validateConfig(value: unknown, connectors: Connector[], hasParen
   bounded(c.swarmSize,'Agent count',5,100,true); bounded(c.threshold,'Consensus threshold',.01,1);
   bounded(c.signalWindowMonths,'Signal window',1,120,true);
   if (!c.criteria || typeof c.criteria.text !== 'string' || c.criteria.text.length > 20000) throw new AppError(400,'Invalid completion criteria.');
+  if (!c.criteria.text.trim()) {
+    const task = c.objective.trim();
+    if (task.length > 18000) throw new AppError(400, 'Could not generate completion criteria. Shorten the task description or enter completion criteria yourself.');
+    let text = `Complete the following task: ${task}\nSupport the findings with inspectable source evidence. Address each requested part of the task, report conflicting evidence and unresolved gaps, and do not consider the task complete while a requested part remains unanswered.`;
+    if (c.profile === 'gtm') {
+      text += `\nFind at least ${c.criteria.minCompanies} qualified companies, each supported by ${c.criteria.independentSources} independent source origins. At least ${c.criteria.signalPercent}% need a dated demand signal within ${c.signalWindowMonths} months. Cover every discovery segment and observe ${c.criteria.saturationAttempts} discovery attempts without a new eligible company.`;
+      if (c.criteria.requireContacts) text += ' Every qualified company needs a founder or CEO and another named relevant contact.';
+      c.criteria.text = text;
+    } else c.criteria = criteriaFromText(text);
+  }
   bounded(c.criteria.minCompanies,'Minimum companies',0,10000,true); bounded(c.criteria.signalPercent,'Signal percentage',0,100);
   bounded(c.criteria.independentSources,'Independent source origins',1,20,true); bounded(c.criteria.saturationAttempts,'Saturation attempts',0,1000,true);
   const conflicts=criteriaConflicts(c.criteria);if(conflicts.length)throw new AppError(400,conflicts.join(' '));

@@ -17,6 +17,9 @@ export function explicitCriteria(text:string):Partial<CompletionCriteria>{
  if(/(?:every|each|all)[^.\n]*(?:founder|ceo)[^.\n]*(?:another|other|second)[^.\n]*contact/i.test(text))result.requireContacts=true;
  return result;
 }
+export function criteriaFromText(text: string): CompletionCriteria {
+ return { text, minCompanies: 0, signalPercent: 0, requireContacts: false, independentSources: 1, saturationAttempts: 0, ...explicitCriteria(text) };
+}
 /** Editing a measurable control explicitly edits the corresponding recognized prose. */
 export function rewriteCriteriaText(text:string,key:keyof CompletionCriteria,value:unknown):string{
  const pattern=patterns[key];if(!pattern)return text;
