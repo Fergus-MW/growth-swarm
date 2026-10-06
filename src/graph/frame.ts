@@ -23,7 +23,9 @@ export function frameTransform(xs: readonly number[], ys: readonly number[], vie
     const y = ys[i];
     if (x !== undefined && y !== undefined && Number.isFinite(x) && Number.isFinite(y)) points.push({ x, y });
   }
-  if (!points.length || viewport.width < 1 || viewport.height < 1) return null;
+  const { width, height, insets } = viewport;
+  if (![width, height, insets.left, insets.right, insets.top, insets.bottom].every((value) => Number.isFinite(value))) return null;
+  if (!points.length || width < 1 || height < 1) return null;
   const sx = points.map((point) => point.x).sort((a, b) => a - b);
   const sy = points.map((point) => point.y).sort((a, b) => a - b);
   const x0 = percentile(sx, 0.02);

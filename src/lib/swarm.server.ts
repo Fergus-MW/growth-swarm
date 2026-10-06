@@ -145,6 +145,7 @@ async function captureSearch(
   agentIndex: number,
   query: string,
   retrievalTargetId?: string,
+  signal?: AbortSignal,
 ): Promise<{ chunks: Array<{ id: string; title: string; content: string; url: string }>; status: string }> {
   const { data: invocation } = await db
     .from("invocations")
@@ -160,15 +161,22 @@ async function captureSearch(
     })
     .select("id")
     .single();
+  const invocationId = typeof invocation?.id === "string" ? invocation.id : undefined;
 
-  const outcome = await webSearch(query);
+  const outcome = await webSearch(query, 6, signal);
   await charge(db, run, SEARCH_CALL_COST);
 
+  const settleInvocation = async (patch: Record<string, unknown>) => {
+    if (!invocationId) return;
+    await db.from("invocations").update(patch).eq("id", invocationId);
+  };
+
   if (!outcome.ok) {
-    await db
-      .from("invocations")
-      .update({ status: outcome.status === "empty" ? "empty" : "failed", error: outcome.error, finished_at: new Date().toISOString() })
-      .eq("id", invocation.id);
+    await settleInvocation({
+      status: outcome.status === "empty" ? "empty" : "failed",
+      error: outcome.error,
+      finished_at: new Date().toISOString(),
+    });
     await emit(db, run.id, "search", agentIndex, { query, status: outcome.status, error: outcome.error });
     return { chunks: [], status: outcome.status };
   }
@@ -188,7 +196,7 @@ async function captureSearch(
         is_snippet: true,
         published_at: item.publishedDate ?? null,
         fetched_at: new Date().toISOString(),
-        invocation_id: invocation.id,
+        ...(invocationId ? { invocation_id: invocationId } : {}),
         provenance: "research",
       },
       agentIndex,
@@ -201,10 +209,7 @@ async function captureSearch(
     }
   }
 
-  await db
-    .from("invocations")
-    .update({ status: "succeeded", item_count: chunks.length, finished_at: new Date().toISOString() })
-    .eq("id", invocation.id);
+  await settleInvocation({ status: "succeeded", item_count: chunks.length, finished_at: new Date().toISOString() });
   await emit(db, run.id, "search", agentIndex, { query, status: "succeeded", results: chunks.length });
   return { chunks, status: "succeeded" };
 }
@@ -360,11 +365,11 @@ async function execDecompose(db: Db, run: RunRow, task: any, agent: number) {
   return `Decomposed brief into ${out.segments.length} segments and ${out.discovery_queries.length} discovery queries`;
 }
 
-async function execDiscovery(db: Db, run: RunRow, task: any, agent: number) {
+async function execDiscovery(db: Db, run: RunRow, task: any, agent: number, signal?: AbortSignal) {
   const query: string = task.payload.query;
   const painNoteId: string | undefined = task.payload.painNoteId;
 
-  const { chunks, status } = await captureSearch(db, run, task.id, agent, query, painNoteId);
+  const { chunks, status } = await captureSearch(db, run, task.id, agent, query, painNoteId, signal);
   if (status === "unavailable") {
     return "Web search unavailable — capability gap recorded";
   }
@@ -443,7 +448,7 @@ async function execDiscovery(db: Db, run: RunRow, task: any, agent: number) {
   return `Discovery "${query}": ${created} new companies (${out.companies.length} candidates)${out.negative_finding ? `; negative: ${out.negative_finding}` : ""}`;
 }
 
-async function execQualify(db: Db, run: RunRow, task: any, agent: number) {
+async function execQualify(db: Db, run: RunRow, task: any, agent: number, signal?: AbortSignal) {
   const companyId: string = task.payload.companyId;
   const painNoteId: string | undefined = task.payload.painNoteId;
 
@@ -464,7 +469,7 @@ async function execQualify(db: Db, run: RunRow, task: any, agent: number) {
     chunks = data ?? [];
   }
   if (webSearchAvailable() && task.outbound_calls < MAX_OUTBOUND_PER_TASK) {
-    const fresh = await captureSearch(db, run, task.id, agent, `${company.title} ${run.pain ?? run.objective}`, companyId);
+    const fresh = await captureSearch(db, run, task.id, agent, `${company.title} ${run.pain ?? run.objective}`, companyId, signal);
     chunks = chunks.concat(fresh.chunks.map((c) => ({ id: c.id, title: c.title, content: c.content })));
   }
 
@@ -545,7 +550,7 @@ async function execQualify(db: Db, run: RunRow, task: any, agent: number) {
   return `Qualified ${company.title}: ${out.verdict} (${out.confidence})`;
 }
 
-async function execSignals(db: Db, run: RunRow, task: any, agent: number) {
+async function execSignals(db: Db, run: RunRow, task: any, agent: number, signal?: AbortSignal) {
   const companyId: string = task.payload.companyId;
   const companyName: string = task.payload.companyName;
 
@@ -556,6 +561,7 @@ async function execSignals(db: Db, run: RunRow, task: any, agent: number) {
     agent,
     `${companyName} (hiring OR funding OR acquisition OR "job posting" OR announcement) 2025 2026`,
     companyId,
+    signal,
   );
   if (status === "unavailable") return "Web search unavailable — capability gap recorded";
 
@@ -611,7 +617,7 @@ async function execSignals(db: Db, run: RunRow, task: any, agent: number) {
   return `Signals for ${companyName}: ${count} dated notes${out.negative_finding ? `; negative: ${out.negative_finding}` : ""}`;
 }
 
-async function execContacts(db: Db, run: RunRow, task: any, agent: number) {
+async function execContacts(db: Db, run: RunRow, task: any, agent: number, signal?: AbortSignal) {
   const companyId: string = task.payload.companyId;
   const companyName: string = task.payload.companyName;
 
@@ -622,6 +628,7 @@ async function execContacts(db: Db, run: RunRow, task: any, agent: number) {
     agent,
     `${companyName} founder OR CEO OR "head of" OR director leadership team`,
     companyId,
+    signal,
   );
   if (status === "unavailable") return "Web search unavailable — capability gap recorded";
 
@@ -680,9 +687,9 @@ async function execContacts(db: Db, run: RunRow, task: any, agent: number) {
   return `Contacts for ${companyName}: ${count} confirmed people${out.gap ? `; gap: ${out.gap}` : ""}`;
 }
 
-async function execGap(db: Db, run: RunRow, task: any, agent: number) {
+async function execGap(db: Db, run: RunRow, task: any, agent: number, signal?: AbortSignal) {
   const gap: string = task.payload.gap ?? "unspecified gap";
-  const { chunks } = await captureSearch(db, run, task.id, agent, gap);
+  const { chunks } = await captureSearch(db, run, task.id, agent, gap, undefined, signal);
   const chunkList = chunks.map((c, i) => `[${i}] ${c.title}\n${c.content.slice(0, 600)}`).join("\n\n");
   const out = await callModelJson({
     instructions: `You are an integrity agent repairing a specific research gap. ${RESEARCH_RULES}`,
@@ -739,7 +746,7 @@ async function claimTask(db: Db, run: RunRow, agent: number): Promise<any | null
   return null;
 }
 
-async function runOneTask(db: Db, run: RunRow, task: any, agent: number) {
+async function runOneTask(db: Db, run: RunRow, task: any, agent: number, signal?: AbortSignal) {
   await emit(db, run.id, "task_started", agent, { taskId: task.id, kind: task.kind, payload: task.payload });
   try {
     let summary: string;
@@ -748,19 +755,19 @@ async function runOneTask(db: Db, run: RunRow, task: any, agent: number) {
         summary = await execDecompose(db, run, task, agent);
         break;
       case "discovery":
-        summary = await execDiscovery(db, run, task, agent);
+        summary = await execDiscovery(db, run, task, agent, signal);
         break;
       case "qualify":
-        summary = await execQualify(db, run, task, agent);
+        summary = await execQualify(db, run, task, agent, signal);
         break;
       case "signals":
-        summary = await execSignals(db, run, task, agent);
+        summary = await execSignals(db, run, task, agent, signal);
         break;
       case "contacts":
-        summary = await execContacts(db, run, task, agent);
+        summary = await execContacts(db, run, task, agent, signal);
         break;
       case "gap":
-        summary = await execGap(db, run, task, agent);
+        summary = await execGap(db, run, task, agent, signal);
         break;
       default:
         summary = `Unknown task kind ${task.kind}`;
@@ -903,7 +910,7 @@ async function checkpoint(db: Db, run: RunRow, generation: number) {
  * One bounded execution window. The live screen calls this repeatedly while
  * the run is live — if the stream drops, new work stops (interactive v1).
  */
-export async function executeWindow(db: Db, runId: string): Promise<{ status: string; stats: Record<string, any> }> {
+export async function executeWindow(db: Db, runId: string, signal?: AbortSignal): Promise<{ status: string; stats: Record<string, any> }> {
   const { data: run } = await db.from("runs").select("*").eq("id", runId).single();
   if (!run) throw new Error("Run not found");
   if (run.status !== "running") {
@@ -955,7 +962,7 @@ export async function executeWindow(db: Db, runId: string): Promise<{ status: st
       continue;
     }
 
-    const results = await Promise.allSettled(batch.map((task: any, i: number) => runOneTask(db, run, task, i)));
+    const results = await Promise.allSettled(batch.map((task: any, i: number) => runOneTask(db, run, task, i, signal)));
     const failures = results.filter((r) => r.status === "rejected");
     if (failures.length === results.length) {
       // Systemic failure (e.g. model access denied): stop, don't burn budget.

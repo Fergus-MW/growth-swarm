@@ -1,63 +1,50 @@
-/**
- * Connector adapters. Every connector follows the same capture contract:
- * the full response is persisted as immutable source chunks BEFORE any
- * model reads it, and every call gets an invocation record.
- *
- * Web search (Tavily) is the first adapter. Without TAVILY_API_KEY the
- * connector reports itself unavailable — a visible capability gap, never
- * a silent skip.
- */
-
+/** Tavily read adapter. Raw responses are returned for capture before model use. */
 export type SearchResultItem = {
   title: string;
   url: string;
   content: string;
-  publishedDate?: string | null;
+  publishedDate: string | null;
 };
 
 export type ConnectorSearchOutcome =
-  | { ok: true; items: SearchResultItem[] }
-  | { ok: false; status: "unavailable" | "empty" | "error"; error?: string };
+  | { ok: true; items: SearchResultItem[]; raw: unknown }
+  | { ok: false; status: "unavailable" | "empty" | "error"; error?: string; raw?: unknown };
 
 export function webSearchAvailable(): boolean {
   return Boolean(process.env["TAVILY_API_KEY"]);
 }
 
-export async function webSearch(query: string, maxResults = 6): Promise<ConnectorSearchOutcome> {
+export async function webSearch(query: string, maxResults = 6, signal?: AbortSignal): Promise<ConnectorSearchOutcome> {
   const apiKey = process.env["TAVILY_API_KEY"];
-  if (!apiKey) {
-    return { ok: false, status: "unavailable", error: "Web search is not configured (no Tavily API key)" };
-  }
+  if (!apiKey) return { ok: false, status: "unavailable", error: "Web search is not configured (no Tavily API key)" };
+  let raw: unknown;
   try {
     const response = await fetch("https://api.tavily.com/search", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        api_key: apiKey,
-        query,
-        max_results: maxResults,
-        search_depth: "basic",
-        include_answer: false,
-      }),
+      redirect: "error",
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ query, max_results: Math.max(1, Math.min(20, Math.trunc(maxResults))), search_depth: "basic", include_answer: false }),
     });
-    if (!response.ok) {
-      const body = await response.text();
-      return { ok: false, status: "error", error: `Search provider failed [${response.status}]: ${body}` };
+    raw = await response.text();
+    if (!response.ok) return { ok: false, status: "error", error: `Search provider failed [${response.status}]`, raw };
+    raw = JSON.parse(raw as string) as unknown;
+    if (!raw || typeof raw !== "object" || !("results" in raw) || !Array.isArray(raw.results)) {
+      return { ok: false, status: "error", error: "Search provider returned an invalid result inventory", raw };
     }
-    const data = (await response.json()) as {
-      results?: Array<{ title?: string; url?: string; content?: string; published_date?: string }>;
-    };
-    const items = (data.results ?? [])
-      .filter((r) => r.url && r.title)
-      .map((r) => ({
-        title: r.title!,
-        url: r.url!,
-        content: r.content ?? "",
-        publishedDate: r.published_date ?? null,
-      }));
-    if (items.length === 0) return { ok: false, status: "empty" };
-    return { ok: true, items };
+    const items = raw.results.map((result: unknown): SearchResultItem => {
+      if (!result || typeof result !== "object") throw new Error("Search provider returned an invalid source item");
+      const record = result as Record<string, unknown>;
+      const date = typeof record["published_date"] === "string" ? Date.parse(record["published_date"]) : NaN;
+      return {
+        title: typeof record["title"] === "string" && record["title"].trim() ? record["title"] : "Untitled source result",
+        url: typeof record["url"] === "string" ? record["url"] : "",
+        content: typeof record["content"] === "string" ? record["content"] : JSON.stringify(record),
+        publishedDate: Number.isNaN(date) ? null : new Date(date).toISOString(),
+      };
+    });
+    return items.length ? { ok: true, items, raw } : { ok: false, status: "empty", raw };
   } catch (error) {
-    return { ok: false, status: "error", error: error instanceof Error ? error.message : String(error) };
+    return { ok: false, status: "error", error: error instanceof Error ? error.message : String(error), ...(raw === undefined ? {} : { raw }) };
   }
 }

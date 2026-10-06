@@ -11,10 +11,13 @@ import { executeRun } from './engine.ts';
 import { preflight } from './model.ts';
 import { exportRunJson, exportVault, exportHtml } from './export.ts';
 
-async function body(req: IncomingMessage): Promise<any> {
+async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[]=[];let size=0;
   for await(const chunk of req){size+=chunk.length;if(size>100_000)throw new AppError(413,'Request is too large.');chunks.push(chunk);}
-  try{return JSON.parse(Buffer.concat(chunks).toString());}catch{throw new AppError(400,'Expected valid JSON.');}
+  let value:unknown;
+  try{value=JSON.parse(Buffer.concat(chunks).toString());}catch{throw new AppError(400,'Expected valid JSON.');}
+  if(!value||typeof value!=='object'||Array.isArray(value))throw new AppError(400,'Expected a JSON object.');
+  return value as Record<string,unknown>;
 }
 function json(res: ServerResponse, status: number, value: unknown) {res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(value));}
 export function createApi(store: Store) {
@@ -40,9 +43,9 @@ export function createApi(store: Store) {
         if(path==='/api/runs'&&req.method==='POST'){
           const input=await body(req);const config=validateConfig(input.config||input,getConnectors(),!!input.parentId);
           const key=req.headers['idempotency-key'];if(typeof key!=='string'||key.length<8||key.length>200)throw new AppError(400,'A unique Idempotency-Key header is required.');
-          if(input.parentId&&typeof input.parentId!=='string')throw new AppError(400,'Invalid parent run.');
+          if(input.parentId!==undefined&&typeof input.parentId!=='string')throw new AppError(400,'Invalid parent run.');
           if(config.mode==='live')await preflight(config.model,AbortSignal.timeout(15000));
-          return json(res,201,store.create(config,`local:${key}`,input.parentId));
+          return json(res,201,store.create(config,`local:${key}`,input.parentId as string|undefined));
         }
         const match=path.match(/^\/api\/runs\/([a-zA-Z0-9-]+)(?:\/(snapshot|execute|stop|export))?$/);
         if(!match)throw new AppError(404,'Route not found.');
@@ -71,7 +74,13 @@ export function createApi(store: Store) {
               store.mutate(id,fence,s=>{s.run.error=error instanceof Error?error.message:'Execution failed.';});
               store.finish(id,fence,controller.signal.aborted?(store.getRun(id).stopRequested?'stopped_by_user':'disconnected'):'failed');
             }
-          }finally{clearInterval(heartbeat);unsubscribe();active.delete(id);res.end();}
+          }finally{
+            clearInterval(heartbeat);unsubscribe();active.delete(id);
+            // res.write(false) accepts its frame but later updates are coalesced.
+            // Flush one final coherent state before ending, even when the socket
+            // has not drained, so backpressure cannot hide the terminal result.
+            if(pending&&!closed&&!res.destroyed){const state=store.getState(id);const event:StreamEvent={type:'resync',sequence:state.run.sequence,revision:state.run.revision,data:state};res.end(`id: ${event.sequence}\nevent: resync\ndata: ${JSON.stringify(event)}\n\n`);}else res.end();
+          }
           return;
         }
         if(action==='export'&&req.method==='GET'){

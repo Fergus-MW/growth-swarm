@@ -16,7 +16,8 @@ import { Route as AuthenticatedRunsRouteImport } from './routes/_authenticated/r
 import { Route as AuthenticatedSetupRouteImport } from './routes/_authenticated/setup'
 import { Route as AuthenticatedLeadsIndexRouteImport } from './routes/_authenticated/leads.index'
 import { Route as AuthenticatedLeadsKeyRouteImport } from './routes/_authenticated/leads.$key'
-import { Route as AuthenticatedRunsRunIdRouteImport } from './routes/_authenticated/runs/$runId'
+import { Route as AuthenticatedRunsIndexRouteImport } from './routes/_authenticated/runs.index'
+import { Route as AuthenticatedRunsRunIdRouteImport } from './routes/_authenticated/runs.$runId'
 import { Route as AuthenticatedSwarmRunIdRouteImport } from './routes/_authenticated/swarm.$runId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -53,6 +54,11 @@ const AuthenticatedLeadsKeyRoute = AuthenticatedLeadsKeyRouteImport.update({
   path: '/leads/$key',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedRunsIndexRoute = AuthenticatedRunsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AuthenticatedRunsRoute,
+} as any)
 const AuthenticatedRunsRunIdRoute = AuthenticatedRunsRunIdRouteImport.update({
   id: '/$runId',
   path: '/$runId',
@@ -73,16 +79,17 @@ export interface FileRoutesByFullPath {
   '/runs/$runId': typeof AuthenticatedRunsRunIdRoute
   '/swarm/$runId': typeof AuthenticatedSwarmRunIdRoute
   '/leads/': typeof AuthenticatedLeadsIndexRoute
+  '/runs/': typeof AuthenticatedRunsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
-  '/runs': typeof AuthenticatedRunsRouteWithChildren
   '/setup': typeof AuthenticatedSetupRoute
   '/leads/$key': typeof AuthenticatedLeadsKeyRoute
   '/runs/$runId': typeof AuthenticatedRunsRunIdRoute
   '/swarm/$runId': typeof AuthenticatedSwarmRunIdRoute
   '/leads': typeof AuthenticatedLeadsIndexRoute
+  '/runs': typeof AuthenticatedRunsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -95,6 +102,7 @@ export interface FileRoutesById {
   '/_authenticated/runs/$runId': typeof AuthenticatedRunsRunIdRoute
   '/_authenticated/swarm/$runId': typeof AuthenticatedSwarmRunIdRoute
   '/_authenticated/leads/': typeof AuthenticatedLeadsIndexRoute
+  '/_authenticated/runs/': typeof AuthenticatedRunsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -107,16 +115,17 @@ export interface FileRouteTypes {
     | '/runs/$runId'
     | '/swarm/$runId'
     | '/leads/'
+    | '/runs/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/auth'
-    | '/runs'
     | '/setup'
     | '/leads/$key'
     | '/runs/$runId'
     | '/swarm/$runId'
     | '/leads'
+    | '/runs'
   id:
     | '__root__'
     | '/'
@@ -128,6 +137,7 @@ export interface FileRouteTypes {
     | '/_authenticated/runs/$runId'
     | '/_authenticated/swarm/$runId'
     | '/_authenticated/leads/'
+    | '/_authenticated/runs/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -187,6 +197,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedLeadsKeyRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/runs/': {
+      id: '/_authenticated/runs/'
+      path: '/'
+      fullPath: '/runs/'
+      preLoaderRoute: typeof AuthenticatedRunsIndexRouteImport
+      parentRoute: typeof AuthenticatedRunsRoute
+    }
     '/_authenticated/runs/$runId': {
       id: '/_authenticated/runs/$runId'
       path: '/$runId'
@@ -206,10 +223,12 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRunsRouteChildren {
   AuthenticatedRunsRunIdRoute: typeof AuthenticatedRunsRunIdRoute
+  AuthenticatedRunsIndexRoute: typeof AuthenticatedRunsIndexRoute
 }
 
 const AuthenticatedRunsRouteChildren: AuthenticatedRunsRouteChildren = {
   AuthenticatedRunsRunIdRoute: AuthenticatedRunsRunIdRoute,
+  AuthenticatedRunsIndexRoute: AuthenticatedRunsIndexRoute,
 }
 
 const AuthenticatedRunsRouteWithChildren =

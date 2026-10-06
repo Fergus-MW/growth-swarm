@@ -51,8 +51,14 @@ export class GraphSession {
   private frame = 0;
   private queued: VisibleGraph | null = null;
   private userOwned = false;
+  private destroyed = false;
+  private expiryTimer: number | null = null;
   private view: ViewTransform = { k: 1, x: 0, y: 0 };
   private capacity = 0;
+  private pointPositions = new Float32Array(0);
+  private pointColors = new Float32Array(0);
+  private pointSizes = new Float32Array(0);
+  private pointShapes = new Float32Array(0);
   readonly cameras: CameraCommand[] = [];
   readonly stats = { positionUploads: 0, visualUploads: 0, resyncs: 0, allocatedFloats: 0, renderer: 1 };
 
@@ -66,10 +72,12 @@ export class GraphSession {
   ) {}
 
   submit(graph: VisibleGraph): void {
+    if (this.destroyed) return;
     this.queued = graph;
     if (this.frame) return;
     this.frame = this.clock.schedule(() => {
       this.frame = 0;
+      if (this.destroyed) return;
       const next = this.queued;
       this.queued = null;
       if (next) this.replaceVisible(next);
@@ -77,6 +85,9 @@ export class GraphSession {
   }
 
   replaceVisible(graph: VisibleGraph): void {
+    if (this.destroyed) return;
+    this.pending.length = 0;
+    this.disarmExpiry();
     const visible = new Set(graph.nodes.map((node) => node.id));
     for (const node of graph.nodes) this.remember(node);
     for (const id of this.points.keys()) {
@@ -87,22 +98,29 @@ export class GraphSession {
     for (const link of graph.edges) {
       if (visible.has(link.source) && visible.has(link.target)) this.links.set(link.id, link);
     }
-    this.flushPending();
     this.publish(graph.viewReplacement === true, graph.terminal === true);
   }
 
   applyDelta(delta: GraphDelta): void {
+    if (this.destroyed) return;
     for (const node of delta.upsertNodes ?? []) {
       this.hidden.delete(node.id);
       this.remember(node);
     }
     for (const id of delta.removeNodeIds ?? []) this.forget(id);
     for (const merge of delta.merges ?? []) this.merge(merge.from, merge.to);
-    for (const id of delta.removeEdgeIds ?? []) this.links.delete(id);
+    for (const id of delta.removeEdgeIds ?? []) {
+      this.links.delete(id);
+      this.dropPending(id);
+    }
     const now = this.clock.now();
     for (const link of delta.upsertEdges ?? []) {
+      this.dropPending(link.id);
       if (this.points.has(link.source) && this.points.has(link.target) && !this.hidden.has(link.source) && !this.hidden.has(link.target)) this.links.set(link.id, link);
-      else this.enqueue(link, now);
+      else {
+        this.links.delete(link.id);
+        this.enqueue(link, now);
+      }
     }
     this.flushPending();
     this.publish(false, false);
@@ -127,11 +145,13 @@ export class GraphSession {
   }
 
   fitView(): void {
+    if (this.destroyed) return;
     this.userOwned = true;
     this.moveCamera("fit");
   }
 
   focus(id: string): void {
+    if (this.destroyed) return;
     const index = this.indexOf.get(id);
     const point = this.points.get(id);
     if (index === undefined || !point || this.hidden.has(id)) return;
@@ -144,12 +164,18 @@ export class GraphSession {
   }
 
   noteAlphaSettled(): void {
+    if (this.destroyed) return;
     this.completeSettle();
   }
 
   destroy(): void {
+    this.destroyed = true;
     if (this.settleTimer !== null) this.clock.cancel(this.settleTimer);
     if (this.frame) this.clock.cancel(this.frame);
+    this.disarmExpiry();
+    this.settleTimer = null;
+    this.frame = 0;
+    this.queued = null;
   }
 
   private remember(node: GraphPoint): void {
@@ -168,7 +194,13 @@ export class GraphSession {
   private forget(id: string): void {
     this.points.delete(id);
     this.hidden.delete(id);
+    this.order = this.order.filter((item) => item !== id);
     for (const [edgeId, link] of this.links) if (link.source === id || link.target === id) this.links.delete(edgeId);
+    for (let index = this.pending.length - 1; index >= 0; index -= 1) {
+      const link = this.pending[index]?.link;
+      if (link && (link.source === id || link.target === id)) this.pending.splice(index, 1);
+    }
+    if (!this.pending.length) this.disarmExpiry();
   }
 
   private merge(from: string, to: string): void {
@@ -181,13 +213,44 @@ export class GraphSession {
     this.forget(from);
   }
 
+  private dropPending(id: string): void {
+    for (let index = this.pending.length - 1; index >= 0; index -= 1) {
+      if (this.pending[index]?.link.id === id) this.pending.splice(index, 1);
+    }
+  }
+
   private enqueue(link: GraphLink, now: number): void {
+    this.dropPending(link.id);
     this.pending.push({ link, queuedAt: now });
     if (this.pending.length > PENDING_LIMIT) {
       this.pending.length = 0;
+      this.disarmExpiry();
       this.stats.resyncs += 1;
       this.onResync("pending-overflow");
+      return;
     }
+    this.armExpiry();
+  }
+
+  private armExpiry(): void {
+    if (this.destroyed || this.expiryTimer !== null || !this.pending.length) return;
+    const now = this.clock.now();
+    let due = Number.POSITIVE_INFINITY;
+    for (const item of this.pending) due = Math.min(due, item.queuedAt + PENDING_TTL_MS);
+    this.expiryTimer = this.clock.later(() => {
+      this.expiryTimer = null;
+      if (this.destroyed) return;
+      const before = this.pending.length;
+      this.flushPending();
+      if (this.pending.length !== before) this.publish(false, false);
+      this.armExpiry();
+    }, Math.max(0, due - now));
+  }
+
+  private disarmExpiry(): void {
+    if (this.expiryTimer === null) return;
+    this.clock.cancel(this.expiryTimer);
+    this.expiryTimer = null;
   }
 
   private flushPending(): void {
@@ -195,7 +258,7 @@ export class GraphSession {
     const keep: PendingEdge[] = [];
     let expired = false;
     for (const item of this.pending) {
-      if (now - item.queuedAt > PENDING_TTL_MS) {
+      if (now - item.queuedAt >= PENDING_TTL_MS) {
         expired = true;
         continue;
       }
@@ -204,6 +267,7 @@ export class GraphSession {
     }
     this.pending.length = 0;
     this.pending.push(...keep);
+    if (!this.pending.length) this.disarmExpiry();
     if (expired) {
       this.stats.resyncs += 1;
       this.onResync("pending-expired");
@@ -257,16 +321,23 @@ export class GraphSession {
     });
   }
 
+  private ensurePointBuffers(count: number): void {
+    if (this.capacity >= count) return;
+    this.capacity = Math.max(64, 2 ** Math.ceil(Math.log2(Math.max(count, 1))));
+    this.pointPositions = new Float32Array(this.capacity * 2);
+    this.pointColors = new Float32Array(this.capacity * 4);
+    this.pointSizes = new Float32Array(this.capacity);
+    this.pointShapes = new Float32Array(this.capacity);
+    this.stats.allocatedFloats += this.capacity * 8;
+  }
+
   private upload(ids: string[], links: GraphLink[], topology: boolean): void {
     const count = ids.length;
-    if (this.capacity < count) {
-      this.capacity = Math.max(64, 2 ** Math.ceil(Math.log2(Math.max(count, 1))));
-      this.stats.allocatedFloats += this.capacity * 8;
-    }
-    const positions = new Float32Array(count * 2);
-    const colors = new Float32Array(count * 4);
-    const sizes = new Float32Array(count);
-    const shapes = new Float32Array(count);
+    this.ensurePointBuffers(count);
+    const positions = this.pointPositions.subarray(0, count * 2);
+    const colors = this.pointColors.subarray(0, count * 4);
+    const sizes = this.pointSizes.subarray(0, count);
+    const shapes = this.pointShapes.subarray(0, count);
     const incident = degrees(ids, links);
     const maxDegree = Math.max(0, ...[...incident.values()].map((row) => row.degree));
     const stops = colourStops(this.palette);
@@ -309,12 +380,14 @@ export class GraphSession {
   }
 
   private completeSettle(): void {
-    if (this.settled) return;
+    if (this.destroyed || this.settled) return;
     this.settled = true;
+    if (this.settleTimer !== null) this.clock.cancel(this.settleTimer);
     this.settleTimer = null;
     this.uploader.pause();
     if (this.userOwned || this.fitted || this.reducedMotion) return;
     this.fitted = true;
+    this.captureSimulatedPositions();
     this.moveCamera("auto");
   }
 

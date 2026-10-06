@@ -80,11 +80,21 @@ export function commitDraft(s: RunState, task: Task, draft: ResearchDraft): numb
     const existing = d.id ? s.nodes.find(n => n.id === d.id) : key ? s.nodes.find(n => n.identityKey === key) : undefined;
     if (d.id && !existing) throw new Error('Unknown node update target');
     if (existing?.category === 'source_chunk') throw new Error('Source chunks are immutable');
+    if (existing && (existing.category !== d.category || existing.entityType !== d.entityType)) throw new Error('An authored revision cannot change the node category or entity type');
+    const fields = d.fields ? { ...existing?.fields, ...d.fields } : existing?.fields;
+    const fieldEvidence = d.fieldEvidence ? { ...existing?.fieldEvidence, ...d.fieldEvidence } : existing?.fieldEvidence;
+    const resolvedIdentity = identity({ ...d, fields });
+    if (existing?.category === 'primary_entity' && existing.identityKey && resolvedIdentity && existing.identityKey !== resolvedIdentity) throw new Error('An authored revision cannot change the primary identity');
+    // A changed factual value needs new support; evidence for the prior selected
+    // value must never silently become evidence for its replacement.
+    if (existing && d.fields) for (const [field, value] of Object.entries(d.fields)) {
+      if (JSON.stringify(value) !== JSON.stringify(existing.fields?.[field]) && !d.fieldEvidence?.[field]?.length) throw new Error(`Changed field ${field} requires fresh evidence`);
+    }
     // An agent may revise only its target. Discovery races bind identity without overwriting prose.
     if (existing && !task.targetIds.includes(existing.id) && !(existing.historical && task.targetIds.includes(String(existing.fields?.companyId)))) { mapping.set(d.key, existing.id); continue; }
     const priorVersion = Number((task.payload.expectedVersions as Record<string,number>|undefined)?.[existing?.id??''] ?? task.payload.expectedVersion ?? existing?.version);
     if (existing && Number.isFinite(priorVersion) && existing.version !== priorVersion) throw new Error('Stale prose revision; retry against current graph');
-    const n: GraphNode = { ...(existing ?? baseNode(s,d.title,d.category)), title: d.title, category: d.category, entityType: d.entityType, fields: d.fields ?? existing?.fields, fieldEvidence: d.fieldEvidence ?? existing?.fieldEvidence, identityKey: key ?? existing?.identityKey, body: d.body, semanticKind: d.semanticKind, status: d.status ?? existing?.status, evidence: d.evidence, confidence: d.confidence, provenance: d.provenance, exclusionReason: d.exclusionReason, editorialType: d.entityType === 'company' ? 'organisation' : d.entityType === 'person' ? 'person' : d.semanticKind === 'demand_signal' ? 'evidence' : 'position', assessmentVersion: s.run.assessmentVersion, version: (existing?.version ?? 0) + 1, updatedAt: now() };
+    const n: GraphNode = { ...(existing ?? baseNode(s,d.title,d.category)), title: d.title, category: d.category, entityType: d.entityType, fields, fieldEvidence, identityKey: key ?? existing?.identityKey, body: d.body, semanticKind: d.semanticKind, status: d.status ?? existing?.status, evidence: d.evidence, confidence: d.confidence, provenance: d.provenance, exclusionReason: d.exclusionReason, editorialType: d.entityType === 'company' ? 'organisation' : d.entityType === 'person' ? 'person' : d.semanticKind === 'demand_signal' ? 'evidence' : 'position', assessmentVersion: s.run.assessmentVersion, version: (existing?.version ?? 0) + 1, updatedAt: now() };
     // Model output cannot relabel arbitrary findings as instructions supplied by the user.
     if (d.provenance === 'brief') throw new Error('Only the coordinator may create brief-provenance nodes');
     const refs = [...n.evidence, ...Object.values(n.fieldEvidence ?? {}).flat()];

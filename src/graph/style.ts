@@ -31,6 +31,7 @@ export function degrees(ids: readonly string[], links: readonly GraphLink[]): Ma
   const totals = new Map<string, { degree: number; weight: number }>();
   for (const id of ids) totals.set(id, { degree: 0, weight: 0 });
   for (const link of links) {
+    if (!totals.has(link.source) || !totals.has(link.target)) continue;
     const weight = clampWeight(link.weight);
     const ends = link.source === link.target ? [link.source] : [link.source, link.target];
     for (const id of ends) {

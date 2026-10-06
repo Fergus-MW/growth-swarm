@@ -1,13 +1,14 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { Radar, Square, Download, GitBranch, Loader2, FileText, Building2, User, Database, ScrollText } from "lucide-react";
 import { getRun, stopRun, executeWindow, continueRun, exportRun } from "@/lib/runs.functions";
+import { getRunEvents } from "@/lib/leads.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { GraphCanvas, type GraphNode, type GraphEdge } from "@/components/GraphCanvas";
-import { requiredAgreement } from "../../../../shared/consensus";
+import { requiredAgreement } from "../../../shared/consensus";
 
 export const Route = createFileRoute("/_authenticated/runs/$runId")({
   head: () => ({
@@ -36,8 +37,10 @@ const OUTCOME_LABEL: Record<string, string> = {
 
 function LiveRunPage() {
   const { runId } = Route.useParams();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const fetchRun = useServerFn(getRun);
+  const fetchEvents = useServerFn(getRunEvents);
   const stop = useServerFn(stopRun);
   const exec = useServerFn(executeWindow);
   const cont = useServerFn(continueRun);
@@ -46,7 +49,7 @@ function LiveRunPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showChunks, setShowChunks] = useState(true);
   const [tab, setTab] = useState<"graph" | "ledger">("graph");
-  const [events, setEvents] = useState<EventRow[]>([]);
+  const [liveEvents, setLiveEvents] = useState<EventRow[]>([]);
   const pumpingRef = useRef(false);
 
   const { data, refetch } = useQuery({
@@ -54,6 +57,15 @@ function LiveRunPage() {
     queryFn: () => fetchRun({ data: { id: runId } }),
     refetchInterval: 8000,
   });
+  const { data: savedEvents } = useQuery({
+    queryKey: ["run-events", runId],
+    queryFn: () => fetchEvents({ data: { id: runId, after: 0 } }),
+  });
+  const events = useMemo(() => {
+    const saved = (savedEvents ?? []) as EventRow[];
+    const seen = new Set(saved.map((event) => event.id));
+    return [...saved, ...liveEvents.filter((event) => !seen.has(event.id))];
+  }, [savedEvents, liveEvents]);
 
   const run = data?.run;
   const live = run?.status === "running" || run?.status === "stopping";
@@ -95,7 +107,8 @@ function LiveRunPage() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "events", filter: `run_id=eq.${runId}` },
         (payload) => {
-          setEvents((prev) => [...prev.slice(-120), payload.new as EventRow]);
+          const event = payload.new as EventRow;
+          setLiveEvents((prev) => (prev.some((item) => item.id === event.id) ? prev : [...prev.slice(-120), event]));
         },
       )
       .subscribe();
@@ -104,15 +117,8 @@ function LiveRunPage() {
     };
   }, [runId, refetch]);
 
-  // Load recent events once.
   useEffect(() => {
-    supabase
-      .from("events")
-      .select("*")
-      .eq("run_id", runId)
-      .order("id", { ascending: false })
-      .limit(60)
-      .then(({ data: rows }) => setEvents(((rows ?? []) as EventRow[]).reverse()));
+    setLiveEvents([]);
   }, [runId]);
 
   const nodes: GraphNode[] = useMemo(() => (data?.nodes ?? []) as GraphNode[], [data?.nodes]);
@@ -133,7 +139,8 @@ function LiveRunPage() {
   async function handleContinue() {
     try {
       const child = await cont({ data: { id: runId } });
-      toast.success("Child run created with the inherited graph.");
+      toast.success("Child run created — edit the brief, then launch.");
+      navigate({ to: "/setup", search: { from: child.id } });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not continue");
     }
@@ -205,8 +212,12 @@ function LiveRunPage() {
         <aside className="hidden w-64 flex-col overflow-y-auto border-r border-border p-2 lg:flex">
           <div className="px-1 py-1 font-data text-[10px] tracking-widest text-muted-foreground">AGENT TRACE</div>
           <div className="space-y-1.5">
-            {events.length === 0 && <p className="px-1 text-xs text-muted-foreground">Waiting for the swarm…</p>}
-            {[...events].reverse().slice(0, 30).map((ev) => (
+            {events.length === 0 && (
+              <p className="px-1 text-xs text-muted-foreground">
+                {live ? "Waiting for the swarm…" : "This saved run has no agent trace."}
+              </p>
+            )}
+            {[...events].reverse().slice(0, 120).map((ev) => (
               <button
                 key={ev.id}
                 onClick={() => {

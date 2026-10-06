@@ -1,9 +1,10 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Radar } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable/index";
+import { ensureDevSession } from "@/lib/dev-login";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -25,6 +26,14 @@ function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    ensureDevSession().then((enabled) => {
+      if (active && enabled) navigate({ to: "/runs", replace: true });
+    }).catch((error: Error) => { if (active) toast.error(error.message); });
+    return () => { active = false; };
+  }, [navigate]);
 
   async function handleEmail(e: React.FormEvent) {
     e.preventDefault();

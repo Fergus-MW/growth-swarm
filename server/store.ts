@@ -171,8 +171,7 @@ export class Store {
     const pendingBeforeCap=state.run.outcome==='budget_storage'&&state.invocations.some(i=>i.id===invocation.id&&i.status==='pending');
     if(!['running','stopping','finalizing'].includes(state.run.outcome)&&!pendingBeforeCap) throw new AppError(409,'Source capture requires an active execution.');
     if(!/^[a-zA-Z0-9-]+$/.test(invocation.id)) throw new AppError(400,'Invalid invocation identity.');
-    if(invocation.runId!==id || new Set(invocation.chunkIds).size!==invocation.chunkIds.length || chunks.length !== invocation.chunkIds.length || chunks.some(c=>!invocation.chunkIds.includes(c.id) || c.category!=='source_chunk' || c.runId!==id || c.tenantId!==state.run.tenantId || c.source?.invocationId!==invocation.id)) throw new AppError(400,'Capture inventory mismatch.');
-    for(const chunk of chunks){const errors=validateNode(chunk,state.schema,[...state.nodes,...chunks]);if(errors.length)throw new AppError(400,errors.join(' '));}
+    this.validateCapture(state,invocation,chunks);
     const dir=join(this.root,'runs',id,'captures',invocation.id);mkdirSync(dir,{recursive:true,mode:0o700});
     const rawJson=JSON.stringify(raw);durableWrite(join(dir,'raw.json'),rawJson);
     const completed={...invocation,rawPath:join(dir,'raw.json'),rawHash:hash(rawJson)};
@@ -183,6 +182,15 @@ export class Store {
     this.db.prepare('INSERT INTO captures(id,run_id,descriptor) VALUES(?,?,?)').run(invocation.id,id,JSON.stringify(descriptor));
     this.mutate(id,fence,s=>this.registerCapture(s,completed,chunks,storageBytes),'capture');
     if(this.getRun(id).outcome==='budget_storage')this.checkpoint(id);
+  }
+  private validateCapture(state:RunState,invocation:Invocation,chunks:GraphNode[]) {
+    if(invocation.runId!==state.run.id || new Set(invocation.chunkIds).size!==invocation.chunkIds.length || new Set(chunks.map(chunk=>chunk.id)).size!==chunks.length || chunks.length!==invocation.chunkIds.length || chunks.some(chunk=>!invocation.chunkIds.includes(chunk.id) || chunk.category!=='source_chunk' || chunk.runId!==state.run.id || chunk.tenantId!==state.run.tenantId || chunk.source?.invocationId!==invocation.id)) throw new AppError(400,'Capture inventory mismatch.');
+    for(const chunk of chunks) {
+      const existing=state.nodes.find(node=>node.id===chunk.id);
+      if(existing&&hash(existing)!==hash(chunk))throw new AppError(409,'Captured chunk identity conflicts with an existing immutable node.');
+      const errors=validateNode(chunk,state.schema,[...state.nodes,...chunks]);
+      if(errors.length)throw new AppError(400,errors.join(' '));
+    }
   }
   private registerCapture(s:RunState,invocation:Invocation,chunks:GraphNode[],storageBytes=0) {
     const i=s.invocations.findIndex(q=>q.id===invocation.id);
@@ -232,7 +240,7 @@ export class Store {
         const d=JSON.parse(row.descriptor);
         const missing=!s.invocations.some(i=>i.id===d.invocation.id&&i.rawHash)||d.chunks.some((chunk:GraphNode)=>!s.nodes.some(n=>n.id===chunk.id));
         if(missing) {
-          for(const chunk of d.chunks){const errors=validateNode(chunk,s.schema,[...s.nodes,...d.chunks]);if(errors.length)throw new AppError(500,`Invalid durable capture: ${errors.join(' ')}`);}
+          this.validateCapture(s,d.invocation,d.chunks);
           this.registerCapture(s,d.invocation,d.chunks,d.storageBytes);
         }
       }

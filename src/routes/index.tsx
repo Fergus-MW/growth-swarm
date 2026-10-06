@@ -1,7 +1,9 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Network, Radar, FileSearch, ArrowRight } from "lucide-react";
+import { ensureDevSession } from "@/lib/dev-login";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -25,10 +27,21 @@ export const Route = createFileRoute("/")({
 });
 
 function Landing() {
+  const navigate = useNavigate();
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setSignedIn(Boolean(data.user)));
-  }, []);
+    let active = true;
+    async function loadSession() {
+      if (await ensureDevSession()) {
+        if (active) navigate({ to: "/runs", replace: true });
+        return;
+      }
+      const { data } = await supabase.auth.getUser();
+      if (active) setSignedIn(Boolean(data.user));
+    }
+    loadSession().catch((error: Error) => { if (active) toast.error(error.message); });
+    return () => { active = false; };
+  }, [navigate]);
 
   return (
     <div className="surface-grid flex min-h-screen flex-col bg-background">

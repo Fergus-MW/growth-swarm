@@ -8,15 +8,15 @@ export const createRunInput = z
       .min(1)
       .max(20000)
       .refine((text) => text.trim().length > 0, "Enter a task description."),
-    pain: z.string().optional(),
-    universe: z.string().optional(),
-    exclusions: z.string().optional(),
+    pain: z.string().max(20000).optional(),
+    universe: z.string().max(20000).optional(),
+    exclusions: z.string().max(20000).optional(),
     completion_criteria: z.string().max(20000).default(""),
     swarm_size: z.number().int().min(5).max(100).default(20),
     threshold: z.number().gt(0).lte(1).default(0.7),
     time_limit_sec: z.number().int().min(60).max(3600).default(1800),
     cost_cap: z.number().positive().max(100).default(5),
-    connectors: z.array(z.string()).default(["web_search"]),
+    connectors: z.array(z.enum(["web_search"])).max(1).default(["web_search"]),
   })
   .superRefine((data, context) => {
     if (!data.completion_criteria.trim() && data.objective.trim().length > 18000) {

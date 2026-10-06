@@ -38,3 +38,7 @@ test-results/
 .env
 .env.*
 !.env.example
+
+# Local Supabase CLI state
+supabase/.branches/
+supabase/.temp/

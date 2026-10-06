@@ -21,6 +21,16 @@ npm i
 npm run dev
 ```
 
+## Local Supabase demo
+
+The local app uses the Supabase settings in the ignored `.env.local` file. Start the database with `npx supabase start -x storage-api,imgproxy,postgres-meta,studio,edge-runtime,logflare,vector,supavisor`, then run `npm run dev:local` and open http://127.0.0.1:8080/auth.
+
+Sign in with `demo@example.test` / `GrowthSwarm-demo-2026!`. Run `npm run seed:local` to add the fictional fixtures again; existing fixture records and passwords are preserved. The seed only accepts a loopback database URL and includes two research runs, six company leads, contacts, source snippets, claims, votes, and CRM stages. No external research calls are made.
+
+Set `VITE_DEV_LOGIN_BYPASS=true` in `.env.local` to enter the demo account automatically, including from `/`, `/auth`, and protected links. This only works in development when both the browser and Supabase use loopback URLs. Existing sessions are preserved. Set the flag to `false` and sign out to test the normal login flow; production builds always require normal authentication.
+
+The `.env.local` file must define `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_PUBLISHABLE_KEY` using the local values from `npx supabase status`. Both public key settings use the local anon key; the service role key must never have a `VITE_` prefix. Node.js 24 or newer is recommended.
+
 ## Built with
 
 - TanStack Start

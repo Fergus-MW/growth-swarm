@@ -25,6 +25,7 @@ export async function callModelJson<S extends z.ZodType>(opts: {
   schema: S;
   schemaName: string;
   effort?: "low" | "medium";
+  signal?: AbortSignal;
 }): Promise<z.infer<S>> {
   const apiKey = process.env["LOVABLE_API_KEY"];
   if (!apiKey) throw new ModelError(401, "AI gateway key is not configured");
@@ -38,6 +39,11 @@ export async function callModelJson<S extends z.ZodType>(opts: {
   try {
     const result = streamText({
       model: provider.responses(MODEL),
+      maxRetries: 0,
+      maxOutputTokens: 6000,
+      abortSignal: opts.signal
+        ? AbortSignal.any([opts.signal, AbortSignal.timeout(60_000)])
+        : AbortSignal.timeout(60_000),
       instructions: opts.instructions,
       messages: [{ role: "user", content: opts.input }],
       output: Output.object({ name: opts.schemaName, schema: opts.schema }),

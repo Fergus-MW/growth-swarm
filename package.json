@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
+    "dev:local": "node --env-file=.env.local node_modules/vite/bin/vite.js --host 127.0.0.1 --port 8080",
+    "seed:local": "node --env-file=.env.local scripts/seed-local.mjs",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
