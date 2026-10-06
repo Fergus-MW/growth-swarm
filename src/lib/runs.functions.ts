@@ -42,10 +42,15 @@ export const startRun = createServerFn({ method: "POST" })
       .eq("status", "draft")
       .select("id")
       .single();
-    if (error || !run) {
-      // Duplicate start: return current status instead of launching again.
-      const { data: existing } = await context.supabase.from("runs").select("status").eq("id", data.id).single();
-      return { ok: true, status: existing?.status ?? "unknown" };
+    if (error && error.code !== "PGRST116") throw new Error(error.message);
+    if (!run) {
+      const { data: existing, error: lookupError } = await context.supabase
+        .from("runs")
+        .select("status")
+        .eq("id", data.id)
+        .single();
+      if (lookupError || !existing) throw new Error(lookupError?.message ?? "Run not found");
+      return { ok: true, status: existing.status };
     }
     return { ok: true, status: "running" };
   });
@@ -55,7 +60,9 @@ export const listRuns = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("runs")
-      .select("id, objective, profile, status, outcome, swarm_size, threshold, spend, cost_cap, stats, created_at, started_at, ended_at, parent_run_id")
+      .select(
+        "id, objective, profile, status, outcome, swarm_size, threshold, spend, cost_cap, stats, created_at, started_at, ended_at, parent_run_id",
+      )
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
     return data;
@@ -65,24 +72,63 @@ export const getRun = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data) => z.object({ id: z.string() }).parse(data))
   .handler(async ({ data, context }) => {
-    const { data: run, error } = await context.supabase.from("runs").select("*").eq("id", data.id).single();
+    const { data: run, error } = await context.supabase
+      .from("runs")
+      .select("*")
+      .eq("id", data.id)
+      .single();
     if (error) throw new Error(error.message);
-    const [{ data: nodes }, { data: edges }, { data: votes }, { data: invocations }, { data: checkpoints }] =
-      await Promise.all([
-        context.supabase.from("nodes").select("*").eq("run_id", data.id).order("created_at", { ascending: true }),
-        context.supabase.from("edges").select("*").eq("run_id", data.id),
-        context.supabase.from("votes").select("*").eq("run_id", data.id).order("created_at", { ascending: false }).limit(200),
-        context.supabase.from("invocations").select("*").eq("run_id", data.id).order("started_at", { ascending: false }).limit(200),
-        context.supabase.from("checkpoints").select("*").eq("run_id", data.id).order("created_at", { ascending: false }).limit(1),
-      ]);
-    return { run, nodes: nodes ?? [], edges: edges ?? [], votes: votes ?? [], invocations: invocations ?? [], lastCheckpoint: checkpoints?.[0] ?? null };
+    const [
+      { data: nodes },
+      { data: edges },
+      { data: votes },
+      { data: invocations },
+      { data: checkpoints },
+    ] = await Promise.all([
+      context.supabase
+        .from("nodes")
+        .select("*")
+        .eq("run_id", data.id)
+        .order("created_at", { ascending: true }),
+      context.supabase.from("edges").select("*").eq("run_id", data.id),
+      context.supabase
+        .from("votes")
+        .select("*")
+        .eq("run_id", data.id)
+        .order("created_at", { ascending: false })
+        .limit(200),
+      context.supabase
+        .from("invocations")
+        .select("*")
+        .eq("run_id", data.id)
+        .order("started_at", { ascending: false })
+        .limit(200),
+      context.supabase
+        .from("checkpoints")
+        .select("*")
+        .eq("run_id", data.id)
+        .order("created_at", { ascending: false })
+        .limit(1),
+    ]);
+    return {
+      run,
+      nodes: nodes ?? [],
+      edges: edges ?? [],
+      votes: votes ?? [],
+      invocations: invocations ?? [],
+      lastCheckpoint: checkpoints?.[0] ?? null,
+    };
   });
 
 export const stopRun = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data) => z.object({ id: z.string() }).parse(data))
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase.from("runs").update({ stop_requested: true, status: "stopping" }).eq("id", data.id).eq("status", "running");
+    const { error } = await context.supabase
+      .from("runs")
+      .update({ stop_requested: true, status: "stopping" })
+      .eq("id", data.id)
+      .eq("status", "running");
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -99,9 +145,14 @@ export const continueRun = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data) => z.object({ id: z.string() }).parse(data))
   .handler(async ({ data, context }) => {
-    const { data: parent, error } = await context.supabase.from("runs").select("*").eq("id", data.id).single();
+    const { data: parent, error } = await context.supabase
+      .from("runs")
+      .select("*")
+      .eq("id", data.id)
+      .single();
     if (error || !parent) throw new Error("Parent run not found");
-    if (parent.status === "running" || parent.status === "stopping") throw new Error("Parent is still live — stop it first");
+    if (parent.status === "running" || parent.status === "stopping")
+      throw new Error("Parent is still live — stop it first");
 
     // Child inherits the brief and authorized source observations; parent stays immutable.
     const { data: child, error: childError } = await context.supabase
@@ -199,14 +250,19 @@ export const exportRun = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data) => z.object({ id: z.string() }).parse(data))
   .handler(async ({ data, context }) => {
-    const { data: run, error } = await context.supabase.from("runs").select("*").eq("id", data.id).single();
+    const { data: run, error } = await context.supabase
+      .from("runs")
+      .select("*")
+      .eq("id", data.id)
+      .single();
     if (error) throw new Error(error.message);
-    const [{ data: nodes }, { data: edges }, { data: assertions }, { data: invocations }] = await Promise.all([
-      context.supabase.from("nodes").select("*").eq("run_id", data.id),
-      context.supabase.from("edges").select("*").eq("run_id", data.id),
-      context.supabase.from("assertions").select("*").eq("run_id", data.id),
-      context.supabase.from("invocations").select("*").eq("run_id", data.id),
-    ]);
+    const [{ data: nodes }, { data: edges }, { data: assertions }, { data: invocations }] =
+      await Promise.all([
+        context.supabase.from("nodes").select("*").eq("run_id", data.id),
+        context.supabase.from("edges").select("*").eq("run_id", data.id),
+        context.supabase.from("assertions").select("*").eq("run_id", data.id),
+        context.supabase.from("invocations").select("*").eq("run_id", data.id),
+      ]);
     const partial = run.status !== "completed";
     return {
       manifest: {
@@ -214,7 +270,9 @@ export const exportRun = createServerFn({ method: "GET" })
         outcome: run.outcome,
         status: run.status,
         partial,
-        quality_warning: partial ? "This is a partial result; quality gates may not have passed." : null,
+        quality_warning: partial
+          ? "This is a partial result; quality gates may not have passed."
+          : null,
         spend: run.spend,
         revision: run.graph_revision,
         exported_at: new Date().toISOString(),
