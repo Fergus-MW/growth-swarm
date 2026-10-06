@@ -120,3 +120,16 @@ export const getRunEvents = createServerFn({ method: "GET" })
     if (error) throw new Error(error.message);
     return rows ?? [];
   });
+
+export const getAgentHistory = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ id: z.string(), agent: z.number().int().min(0).max(99), before: z.number().int().positive().optional() }).parse(d))
+  .handler(async ({ data, context }) => {
+    let query = context.supabase.from("events")
+      .select("id, kind, agent_index, payload, created_at")
+      .eq("run_id", data.id).eq("agent_index", data.agent);
+    if (data.before !== undefined) query = query.lt("id", data.before);
+    const { data: rows, error } = await query.order("id", { ascending: false }).limit(100);
+    if (error) throw new Error(error.message);
+    return (rows ?? []).reverse();
+  });
