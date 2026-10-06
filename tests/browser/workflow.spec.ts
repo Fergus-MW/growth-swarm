@@ -4,6 +4,7 @@ test('desktop: launch, inspect source evidence, explore, download and continue',
  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
  await page.goto('/');
  await expect(page.getByRole('heading',{name:'What are we researching?'})).toBeVisible();
+ const initialRuns=await (await page.request.get('/api/runs')).json();
  await expect(page.getByText('14 / 20 votes',{exact:true})).toBeVisible();
  await page.locator('#min-companies').fill('5');
  await page.getByText('Discovery saturation',{exact:true}).click();
@@ -30,7 +31,7 @@ test('desktop: launch, inspect source evidence, explore, download and continue',
  await page.getByRole('button',{name:'Start child run'}).click();
  await expect(page.getByRole('button',{name:'Continue research'})).toBeVisible({timeout:25000});
  await page.getByRole('button',{name:/Research runs/}).click();
- await expect(page.locator('.run-card')).toHaveCount(2);
+ await expect(page.locator('.run-card')).toHaveCount(initialRuns.length+2);
  expect(errors).toEqual([]);
 });
 
