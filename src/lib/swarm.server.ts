@@ -986,10 +986,19 @@ export async function executeWindow(db: Db, runId: string): Promise<{ status: st
 }
 
 async function finishRun(db: Db, run: RunRow, outcome: string) {
-  await db
+  let completion = db
     .from("runs")
     .update({ status: outcome === "consensus" ? "completed" : "ended", outcome, ended_at: new Date().toISOString() })
     .eq("id", run.id);
+  if (outcome === "consensus") {
+    // Only commit the revision that was voted on, while the run remains live.
+    completion = completion.eq("graph_revision", run.graph_revision).eq("status", "running").eq("stop_requested", false);
+  }
+  const { data: finished, error } = await completion.select("id").maybeSingle();
+  // The database trigger atomically snapshots the final graph into the CRM.
+  // Do not report a finished run if its completion transaction was rejected.
+  if (error) throw new Error(error.message);
+  if (!finished) throw new Error("Run changed during completion; reload its current state");
   run.status = outcome === "consensus" ? "completed" : "ended";
   run.outcome = outcome;
   await emit(db, run.id, "run_finished", null, { outcome });

@@ -14,6 +14,135 @@ export type Database = {
   }
   public: {
     Tables: {
+      crm_records: {
+        Row: {
+          id: string
+          user_id: string
+          entity_type: string
+          identity_key: string
+          origin_run_id: string
+          title: string
+          fields: Json
+          free_text: string | null
+          confidence: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          entity_type: string
+          identity_key: string
+          origin_run_id: string
+          title: string
+          fields?: Json
+          free_text?: string | null
+          confidence?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          entity_type?: string
+          identity_key?: string
+          origin_run_id?: string
+          title?: string
+          fields?: Json
+          free_text?: string | null
+          confidence?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      crm_record_sources: {
+        Row: {
+          id: string
+          crm_record_id: string
+          user_id: string
+          run_id: string
+          node_id: string
+          graph_revision: number
+          node_revision: number
+          snapshot: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          crm_record_id: string
+          user_id: string
+          run_id: string
+          node_id: string
+          graph_revision: number
+          node_revision: number
+          snapshot: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          crm_record_id?: string
+          user_id?: string
+          run_id?: string
+          node_id?: string
+          graph_revision?: number
+          node_revision?: number
+          snapshot?: Json
+          created_at?: string
+        }
+        Relationships: []
+      }
+      crm_transfers: {
+        Row: {
+          run_id: string
+          user_id: string
+          graph_revision: number
+          status: string
+          source_count: number
+          company_count: number
+          person_count: number
+          created_count: number
+          linked_count: number
+          failed_count: number
+          attempts: number
+          error: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          run_id: string
+          user_id: string
+          graph_revision: number
+          status?: string
+          source_count?: number
+          company_count?: number
+          person_count?: number
+          created_count?: number
+          linked_count?: number
+          failed_count?: number
+          attempts?: number
+          error?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          run_id?: string
+          user_id?: string
+          graph_revision?: number
+          status?: string
+          source_count?: number
+          company_count?: number
+          person_count?: number
+          created_count?: number
+          linked_count?: number
+          failed_count?: number
+          attempts?: number
+          error?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       assertions: {
         Row: {
           assessment_version: number
@@ -589,7 +718,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      retry_crm_transfer: {
+        Args: { p_run_id: string }
+        Returns: Database["public"]["Tables"]["crm_transfers"]["Row"]
+      }
     }
     Enums: {
       [_ in never]: never
