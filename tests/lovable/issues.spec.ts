@@ -97,6 +97,11 @@ test("generic task reaches Completed with stored evidence and history", async ({
     )
     .toBe("consensus");
   await expect(page.getByRole("banner").getByText("Completed", { exact: true })).toBeVisible();
+  const graph = page.getByRole("img", { name: /^Research graph with/ });
+  await expect(graph).toHaveAccessibleName("Research graph with 2 objects");
+  await expect(graph.locator("canvas")).toHaveCount(1);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: "Fit view", exact: true }).click();
   const tables = await page.evaluate(
     () =>
       (
@@ -117,6 +122,7 @@ test("generic task reaches Completed with stored evidence and history", async ({
     "FICTIONAL",
   );
   await page.getByRole("button", { name: "Close research inspector", exact: true }).click();
+  await page.screenshot({ path: "test-results/lovable-completed-desktop.png" });
   await page
     .getByRole("link", { name: /^RUNS$/ })
     .first()
