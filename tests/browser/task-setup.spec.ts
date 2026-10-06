@@ -16,9 +16,11 @@ test('task setup keeps the required task and optional criteria centered with adv
   expect(a.width).toBeGreaterThan(350);
   expect(a.width).toBeLessThan(600);
   expect(Math.abs(a.x + a.width / 2 - (222 + (1440 - 222) / 2))).toBeLessThan(10);
+  await page.screenshot({ path: 'test-results/task-setup-desktop.png', fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(task).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: 'test-results/task-setup-mobile.png', fullPage: true });
 });
 
 test('criteria generation failure preserves the task and exact explicit criteria can be retried', async ({ page }) => {
