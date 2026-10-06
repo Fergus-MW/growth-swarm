@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { Radar, Loader2, Play } from "lucide-react";
@@ -49,30 +49,42 @@ function SetupPage() {
   const [webSearch, setWebSearch] = useState(true);
   const [busy, setBusy] = useState(false);
 
+  const starting = useRef(false);
+  const admitted = useRef<{ key: string; id: string } | null>(null);
+
   async function handleLaunch(e: React.FormEvent) {
     e.preventDefault();
+    if (starting.current || !objective.trim()) return;
+    starting.current = true;
     setBusy(true);
+    const data = {
+      profile,
+      objective,
+      pain: pain || undefined,
+      universe: universe || undefined,
+      exclusions: exclusions || undefined,
+      completion_criteria: criteria,
+      swarm_size: swarmSize,
+      threshold,
+      time_limit_sec: timeLimit * 60,
+      cost_cap: costCap,
+      connectors: webSearch ? ["web_search"] : [],
+    };
+    const key = JSON.stringify(data);
     try {
-      const { id } = await create({
-        data: {
-          profile,
-          objective,
-          pain: pain || undefined,
-          universe: universe || undefined,
-          exclusions: exclusions || undefined,
-          completion_criteria: criteria,
-          swarm_size: swarmSize,
-          threshold,
-          time_limit_sec: timeLimit * 60,
-          cost_cap: costCap,
-          connectors: webSearch ? ["web_search"] : [],
-        },
-      });
-      await start({ data: { id } });
-      toast.success("Run launched — the swarm is researching.");
-      navigate({ to: "/runs/$runId", params: { runId: id } });
+      if (admitted.current?.key !== key) {
+        const { id } = await create({ data });
+        admitted.current = { key, id };
+      }
+      const id = admitted.current.id;
+      const result = await start({ data: { id } });
+      if (!["running", "stopping", "completed", "ended"].includes(result.status)) {
+        throw new Error("The run could not start. Try again.");
+      }
+      await navigate({ to: "/runs/$runId", params: { runId: id } });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not launch run");
+      toast.error(error instanceof Error ? error.message : "Could not start run");
+      starting.current = false;
       setBusy(false);
     }
   }
@@ -146,7 +158,7 @@ function SetupPage() {
               className="glow-primary flex w-full justify-center items-center gap-2 rounded-md bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-transform hover:scale-[1.02] disabled:opacity-50"
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              Launch swarm
+              {busy ? "Starting…" : "Start"}
             </button>
             <p className="text-center text-xs leading-relaxed text-muted-foreground">
               {swarmSize} agents · up to ${costCap.toFixed(2)} · {timeLimit} minutes.{" "}
