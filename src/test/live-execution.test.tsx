@@ -14,6 +14,7 @@ import { Route as liveRoute } from "@/routes/_authenticated/runs/$runId";
 const boundary = vi.hoisted(() => ({
   snapshot: vi.fn(),
   events: vi.fn(),
+  archive: vi.fn(),
   changed: new Map<string, (event: { new: object }) => void>(),
 }));
 vi.mock("@/lib/runs.functions", () => ({
@@ -23,7 +24,10 @@ vi.mock("@/lib/runs.functions", () => ({
   continueRun: vi.fn(),
   exportRun: vi.fn(),
 }));
-vi.mock("@/lib/leads.functions", () => ({ getRunEvents: boundary.events }));
+vi.mock("@/lib/leads.functions", () => ({
+  getRunEvents: boundary.events,
+  getAgentHistory: boundary.archive,
+}));
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     channel: () => {
@@ -66,6 +70,8 @@ beforeEach(() => {
   boundary.changed.clear();
   boundary.snapshot.mockReset();
   boundary.events.mockReset();
+  boundary.archive.mockReset();
+  boundary.archive.mockResolvedValue([]);
   boundary.events.mockResolvedValue([]);
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
 });
@@ -206,4 +212,40 @@ it("streams activity and keeps source actions connected to the existing inspecto
   act(() => within(inspector).getByRole("button", { name: "Close research inspector" }).click());
   expect(screen.queryByRole("region", { name: "Research inspector" })).not.toBeInTheDocument();
   expect(screen.getByText("Completed", { selector: "header span" })).toBeInTheDocument();
+});
+
+it("browses older saved source actions without growing or replacing the live buffer", async () => {
+  const rows = Array.from({ length: 102 }, (_, index) =>
+    event(index + 1, 0, "task_done", { summary: `Recorded action ${index + 1}` }),
+  );
+  rows[0] = event(1, 0, "search", {
+    query: "Earliest saved source action",
+    status: "succeeded",
+    results: 1,
+  });
+  boundary.events.mockResolvedValue(rows);
+  boundary.archive.mockResolvedValue(rows.slice(0, 2));
+  await openRun(5);
+  const panel = await screen.findByRole("article", { name: "Agent 01" });
+  await waitFor(() => expect(within(panel).getByText("Trace history (100)")).toBeInTheDocument());
+  act(() => within(panel).getByRole("button", { name: "Browse older saved history" }).click());
+  await waitFor(() =>
+    expect(boundary.archive).toHaveBeenCalledWith({ data: { id: "fixture", agent: 0, before: 3 } }),
+  );
+  await waitFor(() => expect(within(panel).getByText("Trace history (2)")).toBeInTheDocument());
+  act(() => within(panel).getByText("Actions & results (1)").click());
+  expect(
+    within(within(panel).getByText("Actions & results (1)").closest("details")!).getByText(
+      "Earliest saved source action",
+    ),
+  ).toBeVisible();
+  act(() =>
+    boundary.changed.get("events")?.({
+      new: event(103, 0, "task_done", { summary: "New live result" }),
+    }),
+  );
+  expect(within(panel).getByText("Trace history (2)")).toBeInTheDocument();
+  act(() => within(panel).getByRole("button", { name: "Latest activity" }).click());
+  expect(within(panel).getByText("Trace history (100)")).toBeInTheDocument();
+  expect(within(panel).getByText("New live result", { selector: "p.line-clamp-2" })).toBeVisible();
 });

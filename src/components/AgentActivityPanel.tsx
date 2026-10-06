@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
+import { getAgentHistory } from "@/lib/leads.functions";
 import { Bot, Pin, ArrowUpRight } from "lucide-react";
 import {
   agentStatus,
@@ -10,25 +12,49 @@ import {
 
 export function AgentActivityPanel({
   index,
-  events,
+  runId,
+  events: liveEvents,
   votes,
   runStatus,
   onSelect,
 }: {
   index: number;
+  runId: string;
   events: AgentEvent[];
   votes: AgentVote[];
   runStatus: string;
   onSelect: (id: string) => void;
 }) {
+  const fetchHistory = useServerFn(getAgentHistory);
+  const [archived, setArchived] = useState<AgentEvent[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [archiveError, setArchiveError] = useState(false);
+  const request = useRef(0);
+  const events = archived ?? liveEvents;
+  async function browseOlder() {
+    const generation = ++request.current;
+    setLoading(true);
+    setArchiveError(false);
+    try {
+      const before = events[0]?.id;
+      const rows = await fetchHistory({
+        data: { id: runId, agent: index, ...(before === undefined ? {} : { before }) },
+      });
+      if (generation === request.current) setArchived(rows);
+    } catch {
+      if (generation === request.current) setArchiveError(true);
+    } finally {
+      if (generation === request.current) setLoading(false);
+    }
+  }
   const [pinned, setPinned] = useState(false);
   const name = `Agent ${String(index + 1).padStart(2, "0")}`;
-  const status = agentStatus(events, runStatus);
-  const latest = events.at(-1);
+  const status = agentStatus(liveEvents, runStatus);
+  const latest = liveEvents.at(-1);
   const searches = events.filter((event) => event.kind === "search");
   const explanations = events.filter((event) => event.kind === "agent_voted");
   const voteEpochs = new Set(explanations.map((event) => eventFields(event)["epoch"]));
-  const savedVotes = votes.filter((vote) => !voteEpochs.has(vote.epoch));
+  const savedVotes = archived === null ? votes.filter((vote) => !voteEpochs.has(vote.epoch)) : [];
   function entry(event: AgentEvent) {
     const fields = eventFields(event);
     const nodeId = fields["nodeId"];
@@ -106,6 +132,35 @@ export function AgentActivityPanel({
       <p className="line-clamp-2 text-xs text-foreground/90">
         {latest ? eventText(latest) : "Waiting for an available task."}
       </p>
+      <div className="flex flex-wrap gap-2 text-[10px]">
+        <button
+          onClick={browseOlder}
+          disabled={loading || (archived !== null && archived.length < 100)}
+          className="text-primary disabled:text-muted-foreground"
+        >
+          {loading
+            ? "Loading saved history…"
+            : archived === null
+              ? "Browse older saved history"
+              : "Older page"}
+        </button>
+        {archived !== null && (
+          <button
+            className="text-primary"
+            onClick={() => {
+              request.current++;
+              setArchived(null);
+              setLoading(false);
+              setArchiveError(false);
+            }}
+          >
+            Latest activity
+          </button>
+        )}
+        {archived !== null && <p>Saved history page · {archived.length} entries</p>}
+        {archiveError && <p role="status">Saved history unavailable. Retry browsing.</p>}
+        {archived?.length === 0 && <p>No earlier saved activity.</p>}
+      </div>
       <details className="border-t border-border pt-2 text-[11px]">
         <summary className="cursor-pointer text-primary">Trace history ({events.length})</summary>
         <div className="mt-2 max-h-60 overflow-y-auto overscroll-contain pr-1">
@@ -115,7 +170,9 @@ export function AgentActivityPanel({
           </p>
           {events.length === 100 && (
             <p className="mb-2 text-[10px] text-muted-foreground">
-              Latest 100 entries for this agent.
+              {archived === null
+                ? "Latest 100 entries for this agent."
+                : "100 entries on this saved page."}
             </p>
           )}
           {events.length ? (
