@@ -192,7 +192,11 @@ it("streams activity and keeps source actions connected to the existing inspecto
   expect(within(panel).getAllByRole("button", { name: "Inspect source" }).length).toBeGreaterThan(
     0,
   );
-  act(() => within(panel).getByRole("button", { name: "Inspect source" }).click());
+  act(() =>
+    within(within(panel).getByText("Actions & results (1)").closest("details")!)
+      .getByRole("button", { name: "Inspect source" })
+      .click(),
+  );
   const inspector = screen.getByRole("region", { name: "Research inspector" });
   expect(within(inspector).getByText("Synthetic captured passage")).toBeVisible();
   expect(within(inspector).getByRole("link")).toHaveAttribute(
