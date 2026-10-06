@@ -1,72 +1,88 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-
-/** Dedupe key: website domain when known, else normalized company name. */
-export function leadKeyFor(title: string, fields: any): string {
-  const site = typeof fields?.website === "string" ? fields.website : "";
-  if (site) {
-    const host = site.replace(/^https?:\/\//i, "").replace(/^www\./i, "").split(/[/?#]/)[0]?.toLowerCase();
-    if (host) return host;
-  }
-  return title.toLowerCase().replace(/\b(inc|ltd|llc|gmbh|oü|as|ab|plc|corp)\b\.?/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-}
+import { STAGES } from "@/lib/lead-stages";
+import { conflictingFields, employmentStance, evidenceEdgeCount, isEditableField } from "@/lib/crm";
+import { ensureCrmTransfer, readTransfer } from "@/lib/crm.server";
 
 const STATUS_WEIGHT: Record<string, number> = { qualified: 60, candidate: 25, unclear: 20, rejected: 0 };
 
+async function selectIn<T>(load: (ids: string[]) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>, ids: string[]): Promise<T[]> {
+  const rows: T[] = [];
+  for (let index = 0; index < ids.length; index += 80) {
+    const slice = ids.slice(index, index + 80);
+    if (!slice.length) continue;
+    const { data, error } = await load(slice);
+    if (error) throw new Error(error.message);
+    rows.push(...(data ?? []));
+  }
+  return rows;
+}
+
 export const listLeads = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .inputValidator((d) => z.object({
+    kind: z.enum(["company", "person"]).default("company"),
+    runId: z.string().optional(),
+    page: z.number().int().min(1).default(1),
+    pageSize: z.number().int().min(1).max(200).default(40),
+  }).parse(d ?? {}))
+  .handler(async ({ data, context }) => {
     const db = context.supabase;
-    const [{ data: companies, error }, { data: runs }, { data: leadRows }] = await Promise.all([
-      db.from("nodes").select("id, run_id, title, fields, confidence, free_text, created_at").eq("category", "primary_entity").eq("entity_type", "company"),
-      db.from("runs").select("id, objective"),
-      db.from("leads").select("*"),
-    ]);
+    const { data: records, error } = await db.from("crm_records").select("*").eq("kind", data.kind).order("updated_at", { ascending: false });
     if (error) throw new Error(error.message);
-    const ids = (companies ?? []).map((c) => c.id);
-    const [{ data: edges }, { data: assertions }] = await Promise.all([
-      ids.length ? db.from("edges").select("from_node, to_node, relation").or(`from_node.in.(${ids.join(",")}),to_node.in.(${ids.join(",")})`) : Promise.resolve({ data: [] as any[] }),
-      ids.length ? db.from("assertions").select("owner_node_id").in("owner_node_id", ids) : Promise.resolve({ data: [] as any[] }),
-    ]);
-    const edgeCount = new Map<string, number>();
-    const contactCount = new Map<string, number>();
-    for (const e of edges ?? []) {
-      for (const n of [e.from_node, e.to_node]) edgeCount.set(n, (edgeCount.get(n) ?? 0) + 1);
-      if (e.relation === "works_at" || e.relation === "best_contact_for") {
-        const c = ids.includes(e.to_node) ? e.to_node : e.from_node;
-        contactCount.set(c, (contactCount.get(c) ?? 0) + 1);
-      }
-    }
-    const claimCount = new Map<string, number>();
-    for (const a of assertions ?? []) claimCount.set(a.owner_node_id, (claimCount.get(a.owner_node_id) ?? 0) + 1);
-    const runName = new Map((runs ?? []).map((r) => [r.id, r.objective]));
-    const crm = new Map((leadRows ?? []).map((l) => [l.lead_key, l]));
+    const recordIds = (records ?? []).map((row) => row.id);
+    const mappings = await selectIn((ids) => db.from("crm_mappings").select("*").in("record_id", ids), recordIds);
+    const visibleRecords = data.runId ? (records ?? []).filter((row) => mappings.some((mapping) => mapping.record_id === row.id && mapping.run_id === data.runId)) : (records ?? []);
+    const visibleIds = new Set(visibleRecords.map((row) => row.id));
+    const visibleMaps = mappings.filter((mapping) => visibleIds.has(mapping.record_id));
+    const nodes = await selectIn((ids) => db.from("nodes").select("id, run_id, title, fields, free_text, confidence, revision, created_at, entity_type").in("id", ids), [...new Set(visibleMaps.map((mapping) => mapping.node_id))]);
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    const runIds = [...new Set(visibleMaps.map((mapping) => mapping.run_id))];
+    const runs = await selectIn((ids) => db.from("runs").select("id, objective").in("id", ids), runIds);
+    const runName = new Map(runs.map((run) => [run.id, run.objective]));
+    const pageNodes = nodes.map((node) => node.id);
+    const edges = await selectIn((ids) => db.from("edges").select("id, from_node, to_node, relation").or(`from_node.in.(${ids.join(",")}),to_node.in.(${ids.join(",")})`), pageNodes);
 
-    const merged = new Map<string, any>();
-    for (const c of companies ?? []) {
-      const key = leadKeyFor(c.title, c.fields);
-      const f = (c.fields ?? {}) as any;
-      const m = merged.get(key) ?? { key, name: c.title, website: null, location: null, size: null, status: "candidate", runs: [] as { id: string; objective: string }[], evidence: 0, contacts: 0, claims: 0, firstSeen: c.created_at, summary: null };
-      m.website ||= f.website ?? null;
-      m.location ||= f.location ?? null;
-      m.size ||= f.size ?? null;
-      if ((STATUS_WEIGHT[f.status] ?? 0) > (STATUS_WEIGHT[m.status] ?? 0)) m.status = f.status;
-      if (!m.runs.some((r: any) => r.id === c.run_id)) m.runs.push({ id: c.run_id, objective: runName.get(c.run_id) ?? "" });
-      m.evidence += edgeCount.get(c.id) ?? 0;
-      m.contacts += contactCount.get(c.id) ?? 0;
-      m.claims += claimCount.get(c.id) ?? 0;
-      m.summary ||= c.free_text?.slice(0, 240) ?? null;
-      if (c.created_at < m.firstSeen) m.firstSeen = c.created_at;
-      merged.set(key, m);
-    }
-    return [...merged.values()]
-      .map((m) => {
-        const l = crm.get(m.key);
-        const score = Math.min(100, Math.round((STATUS_WEIGHT[m.status] ?? 10) + Math.min(20, m.evidence * 2) + Math.min(10, m.contacts * 5) + Math.min(10, m.claims) + (m.runs.length > 1 ? 5 : 0)));
-        return { ...m, score, stage: l?.stage ?? "new", starred: l?.starred ?? false, notes: l?.notes ?? null };
-      })
-      .sort((a, b) => b.score - a.score);
+    const rows = visibleRecords.map((record) => {
+      const mine = visibleMaps.filter((mapping) => mapping.record_id === record.id);
+      const linked = mine.map((mapping) => nodeById.get(mapping.node_id)).filter((node) => node != null);
+      const latest = [...linked].sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
+      const fields = (latest?.fields ?? {}) as Record<string, unknown>;
+      const overrides = (record.overrides ?? {}) as Record<string, unknown>;
+      const text = (key: string) => {
+        const override = overrides[key];
+        if (typeof override === "string" && override) return override;
+        const value = fields[key];
+        return typeof value === "string" ? value : null;
+      };
+      const nodeIds = new Set(linked.map((node) => node.id));
+      const touching = edges.filter((edge) => nodeIds.has(edge.from_node) || nodeIds.has(edge.to_node));
+      const statusValue = fields["status"];
+      const status = typeof statusValue === "string" ? statusValue : "candidate";
+      return {
+        id: record.id,
+        kind: record.kind,
+        name: text("name") || latest?.title || "Untitled",
+        website: text("website"),
+        location: text("location"),
+        size: text("size"),
+        role: text("role"),
+        status,
+        stage: record.stage,
+        starred: record.starred,
+        notes: record.notes,
+        updatedAt: record.updated_at,
+        evidence: evidenceEdgeCount(touching),
+        contacts: new Set(touching.filter((edge) => edge.relation === "works_at").flatMap((edge) => [edge.from_node, edge.to_node]).filter((id) => !nodeIds.has(id))).size,
+        runs: [...new Map(mine.map((mapping) => [mapping.run_id, { id: mapping.run_id, objective: runName.get(mapping.run_id) ?? "" }])).values()],
+        score: Math.min(100, (STATUS_WEIGHT[status] ?? 10) + Math.min(20, evidenceEdgeCount(touching) * 2)),
+        summary: latest?.free_text?.slice(0, 240) ?? null,
+        confidence: latest?.confidence ?? null,
+      };
+    });
+    const start = (data.page - 1) * data.pageSize;
+    return { rows: rows.slice(start, start + data.pageSize), total: rows.length, page: data.page, pageSize: data.pageSize };
   });
 
 export const getLead = createServerFn({ method: "GET" })
@@ -74,40 +90,112 @@ export const getLead = createServerFn({ method: "GET" })
   .inputValidator((d) => z.object({ key: z.string().min(1) }).parse(d))
   .handler(async ({ data, context }) => {
     const db = context.supabase;
-    const { data: companies } = await db.from("nodes").select("*").eq("category", "primary_entity").eq("entity_type", "company");
-    const matches = (companies ?? []).filter((c) => leadKeyFor(c.title, c.fields) === data.key);
-    if (!matches.length) return null;
-    const ids = matches.map((m) => m.id);
-    const runIds = [...new Set(matches.map((m) => m.run_id))];
-    const [{ data: edges }, { data: assertions }, { data: runs }, { data: crm }] = await Promise.all([
-      db.from("edges").select("*").or(`from_node.in.(${ids.join(",")}),to_node.in.(${ids.join(",")})`),
-      db.from("assertions").select("*").in("owner_node_id", ids).order("created_at", { ascending: false }),
-      db.from("runs").select("id, objective, status, outcome, created_at").in("id", runIds),
-      db.from("leads").select("*").eq("lead_key", data.key).maybeSingle(),
+    const { data: record, error } = await db.from("crm_records").select("*").eq("id", data.key).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!record) return null;
+    const { data: mappings, error: mapError } = await db.from("crm_mappings").select("*").eq("record_id", record.id);
+    if (mapError) throw new Error(mapError.message);
+    const nodeIds = (mappings ?? []).map((mapping) => mapping.node_id);
+    const records = nodeIds.length ? await selectIn((ids) => db.from("nodes").select("*").in("id", ids), nodeIds) : [];
+    const runIds = [...new Set((mappings ?? []).map((mapping) => mapping.run_id))];
+    const [{ data: runs }, assertions, edges] = await Promise.all([
+      runIds.length ? db.from("runs").select("id, objective, status, outcome, created_at").in("id", runIds) : Promise.resolve({ data: [] as { id: string; objective: string; status: string; outcome: string | null; created_at: string }[] }),
+      nodeIds.length ? selectIn((ids) => db.from("assertions").select("*").in("owner_node_id", ids), nodeIds) : Promise.resolve([]),
+      nodeIds.length ? selectIn((ids) => db.from("edges").select("*").or(`from_node.in.(${ids.join(",")}),to_node.in.(${ids.join(",")})`), nodeIds) : Promise.resolve([]),
     ]);
-    const otherIds = [...new Set((edges ?? []).flatMap((e) => [e.from_node, e.to_node]).filter((n) => !ids.includes(n)))];
-    const { data: linked } = otherIds.length
-      ? await db.from("nodes").select("id, run_id, category, entity_type, editorial_type, semantic_kind, title, fields, content, free_text, confidence, locator, provider, published_at, created_at").in("id", otherIds)
-      : { data: [] as any[] };
-    const byId = new Map((linked ?? []).map((n) => [n.id, n]));
-    const links = (edges ?? []).map((e) => {
-      const otherId = ids.includes(e.from_node) ? e.to_node : e.from_node;
-      return { relation: e.relation, polarity: e.polarity, rationale: e.rationale, score: e.score, node: byId.get(otherId) ?? null };
-    }).filter((l) => l.node);
-    return { key: data.key, records: matches, runs: runs ?? [], links, assertions: assertions ?? [], crm: crm ?? null };
+    const otherIds = [...new Set(edges.flatMap((edge) => [edge.from_node, edge.to_node]).filter((id) => !nodeIds.includes(id)))];
+    const linked = otherIds.length
+      ? await selectIn((ids) => db.from("nodes").select("id, run_id, category, entity_type, semantic_kind, title, fields, content, free_text, confidence, locator, provider, published_at, created_at").in("id", ids), otherIds)
+      : [];
+    const relatedMaps = otherIds.length ? await selectIn((ids) => db.from("crm_mappings").select("record_id, node_id").in("node_id", ids), otherIds) : [];
+    const recordByNode = new Map(relatedMaps.map((mapping) => [mapping.node_id, mapping.record_id]));
+    const byId = new Map(linked.map((node) => [node.id, node]));
+    const links = edges.map((edge) => {
+      const otherId = nodeIds.includes(edge.from_node) ? edge.to_node : edge.from_node;
+      const node = byId.get(otherId);
+      if (!node) return null;
+      return {
+        relation: edge.relation,
+        polarity: edge.polarity,
+        stance: edge.relation === "works_at" ? employmentStance(edge.polarity) : null,
+        rationale: edge.rationale,
+        score: edge.score,
+        recordId: recordByNode.get(otherId) ?? null,
+        node,
+      };
+    }).filter((link) => link != null);
+    const overrides = (record.overrides ?? {}) as Record<string, string>;
+    return {
+      key: record.id,
+      kind: record.kind,
+      records,
+      runs: runs ?? [],
+      links,
+      assertions,
+      conflicts: conflictingFields(records.map((node) => ({ runId: node.run_id, fields: (node.fields ?? {}) as Record<string, unknown> }))),
+      evidenceCount: evidenceEdgeCount(edges),
+      crm: { stage: record.stage, starred: record.starred, notes: record.notes, updated_at: record.updated_at, overrides },
+    };
   });
 
 export const updateLead = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d) => z.object({ key: z.string().min(1), stage: z.string().max(40).optional(), notes: z.string().max(10000).nullable().optional(), starred: z.boolean().optional() }).parse(d))
+  .inputValidator((d) => z.object({
+    key: z.string().uuid(),
+    stage: z.enum(STAGES).optional(),
+    notes: z.string().max(10000).nullable().optional(),
+    starred: z.boolean().optional(),
+    overrides: z.record(z.string(), z.string().max(500)).optional(),
+    expectedUpdatedAt: z.string().optional(),
+  }).parse(d))
   .handler(async ({ data, context }) => {
-    const patch: any = { user_id: context.userId, lead_key: data.key, updated_at: new Date().toISOString() };
+    const db = context.supabase;
+    const { data: current, error: readError } = await db.from("crm_records").select("id, overrides, updated_at").eq("id", data.key).maybeSingle();
+    if (readError) throw new Error(readError.message);
+    if (!current) throw new Error("CRM record not found");
+    if (data.expectedUpdatedAt && current.updated_at !== data.expectedUpdatedAt) throw new Error("This record changed. Reload it and try again.");
+    const overrides = { ...((current.overrides ?? {}) as Record<string, string>) };
+    for (const [field, value] of Object.entries(data.overrides ?? {})) {
+      if (!isEditableField(field)) throw new Error(`Cannot edit ${field}`);
+      if (!value.trim()) delete overrides[field];
+      else overrides[field] = value.trim();
+    }
+    const now = new Date().toISOString();
+    const patch: { updated_at: string; stage?: string; notes?: string | null; starred?: boolean; overrides: Record<string, string> } = { updated_at: now, overrides };
     if (data.stage !== undefined) patch.stage = data.stage;
     if (data.notes !== undefined) patch.notes = data.notes;
     if (data.starred !== undefined) patch.starred = data.starred;
-    const { error } = await context.supabase.from("leads").upsert(patch as any, { onConflict: "user_id,lead_key" });
+    const { error } = await db.from("crm_records").update(patch).eq("id", data.key).eq("updated_at", current.updated_at);
     if (error) throw new Error(error.message);
-    return { ok: true };
+    return { ok: true, updatedAt: now };
+  });
+
+export const getCrmTransfer = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { data: run, error } = await context.supabase.from("runs").select("id, user_id, outcome, graph_revision").eq("id", data.id).single();
+    if (error) throw new Error(error.message);
+    if (run.outcome !== "consensus") return null;
+    return ensureCrmTransfer(context.supabase, run, false);
+  });
+
+export const retryCrmTransfer = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { data: run, error } = await context.supabase.from("runs").select("id, user_id, outcome, graph_revision").eq("id", data.id).single();
+    if (error) throw new Error(error.message);
+    if (run.outcome !== "consensus") throw new Error("Only a successful completion can be sent to the CRM");
+    return ensureCrmTransfer(context.supabase, run, true);
+  });
+
+export const listCrmTransfers = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data, error } = await context.supabase.from("crm_transfers").select("*");
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((row) => ({ runId: row.run_id, ...readTransfer(row) }));
   });
 
 export const getRunEvents = createServerFn({ method: "GET" })

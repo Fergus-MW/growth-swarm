@@ -7,6 +7,7 @@ import { Radar, Square, Download, GitBranch, Loader2, FileText, Building2, User,
 import { getRun, stopRun, executeWindow, continueRun, exportRun } from "@/lib/runs.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { GraphCanvas, type GraphNode, type GraphEdge } from "@/components/GraphCanvas";
+import { CrmHandoff } from "@/components/CrmHandoff";
 import { requiredAgreement } from "../../../../shared/consensus";
 
 export const Route = createFileRoute("/_authenticated/runs/$runId")({
@@ -199,6 +200,7 @@ function LiveRunPage() {
           )}
         </div>
       </header>
+      {run.outcome && <CrmHandoff runId={run.id} outcome={run.outcome} />}
 
       <div className="flex min-h-0 flex-1">
         {/* Trace ring (left column) */}

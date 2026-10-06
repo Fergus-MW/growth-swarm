@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { Radar, Plus, Square, GitBranch, Download, Loader2 } from "lucide-react";
 import { listRuns, stopRun, continueRun, exportRun } from "@/lib/runs.functions";
+import { listCrmTransfers } from "@/lib/leads.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { AppHeader } from "@/components/AppHeader";
 
@@ -35,6 +36,7 @@ function RunsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const fetchRuns = useServerFn(listRuns);
+  const fetchTransfers = useServerFn(listCrmTransfers);
   const stop = useServerFn(stopRun);
   const cont = useServerFn(continueRun);
   const exp = useServerFn(exportRun);
@@ -43,6 +45,10 @@ function RunsPage() {
     queryKey: ["runs"],
     queryFn: () => fetchRuns(),
     refetchInterval: 5000,
+  });
+  const transfers = useQuery({
+    queryKey: ["crm-transfers"],
+    queryFn: () => fetchTransfers(),
   });
 
   async function handleStop(id: string) {
@@ -116,6 +122,10 @@ function RunsPage() {
                       <span className={live ? "text-primary" : ""}>
                         {live && <span className="animate-pulse-dot mr-1 inline-block h-1.5 w-1.5 rounded-full bg-primary align-middle" />}
                         {run.status === "draft" ? "Draft" : run.outcome ? (OUTCOME_LABEL[run.outcome] ?? run.outcome) : run.status}
+                        {run.outcome === "consensus" && (
+                          <span> · {transfers.data?.find((item) => item.runId === run.id)?.status === "ready" ? "CRM ready" : transfers.data?.find((item) => item.runId === run.id)?.status === "failed" ? "CRM transfer failed" : "Preparing CRM"}</span>
+                        )}
+                        {run.outcome && run.outcome !== "consensus" && <span> · partial</span>}
                       </span>
                       <span>·</span>
                       <span>{run.swarm_size} agents @ {Math.round(run.threshold * 100)}%</span>

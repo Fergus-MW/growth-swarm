@@ -2,6 +2,7 @@ import { z } from "zod";
 import { callModelJson } from "./ai.server";
 import { webSearch, webSearchAvailable } from "./connectors.server";
 import { requiredAgreement } from "../../shared/consensus";
+import { ensureCrmTransfer } from "./crm.server";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Db = any;
@@ -994,4 +995,5 @@ async function finishRun(db: Db, run: RunRow, outcome: string) {
   run.outcome = outcome;
   await emit(db, run.id, "run_finished", null, { outcome });
   await checkpoint(db, run, 9999);
+  if (outcome === "consensus") await ensureCrmTransfer(db, run);
 }

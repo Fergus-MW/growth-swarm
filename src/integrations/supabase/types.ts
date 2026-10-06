@@ -255,6 +255,120 @@ export type Database = {
           },
         ]
       }
+      crm_mappings: {
+        Row: {
+          created_at: string
+          id: string
+          node_id: string
+          record_id: string
+          revision: number
+          run_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          node_id: string
+          record_id: string
+          revision: number
+          run_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          node_id?: string
+          record_id?: string
+          revision?: number
+          run_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      crm_records: {
+        Row: {
+          created_at: string
+          id: string
+          identity_key: string
+          kind: string
+          notes: string | null
+          overrides: Json
+          stage: string
+          starred: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          identity_key: string
+          kind: string
+          notes?: string | null
+          overrides?: Json
+          stage?: string
+          starred?: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          identity_key?: string
+          kind?: string
+          notes?: string | null
+          overrides?: Json
+          stage?: string
+          starred?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      crm_transfers: {
+        Row: {
+          company_count: number
+          created_count: number
+          error: string | null
+          failed_count: number
+          graph_revision: number
+          person_count: number
+          reused_count: number
+          run_id: string
+          source_count: number
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          company_count?: number
+          created_count?: number
+          error?: string | null
+          failed_count?: number
+          graph_revision?: number
+          person_count?: number
+          reused_count?: number
+          run_id: string
+          source_count?: number
+          status: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          company_count?: number
+          created_count?: number
+          error?: string | null
+          failed_count?: number
+          graph_revision?: number
+          person_count?: number
+          reused_count?: number
+          run_id?: string
+          source_count?: number
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       leads: {
         Row: {
           created_at: string

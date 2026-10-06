@@ -29,12 +29,22 @@ function LeadPage() {
   const qc = useQueryClient();
   const { data: lead, isLoading } = useQuery({ queryKey: ["lead", key], queryFn: () => fetchLead({ data: { key } }) });
   const [notes, setNotes] = useState("");
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   useEffect(() => setNotes(lead?.crm?.notes ?? ""), [lead?.crm?.notes]);
 
-  async function patch(p: { stage?: string; starred?: boolean; notes?: string }) {
-    await save({ data: { key, ...p } });
-    qc.invalidateQueries({ queryKey: ["lead", key] });
-    qc.invalidateQueries({ queryKey: ["leads"] });
+  async function patch(p: { stage?: string; starred?: boolean; notes?: string; overrides?: Record<string, string> }) {
+    const previousNotes = notes;
+    try {
+      await save({ data: { key, ...p, ...(lead?.crm?.updated_at ? { expectedUpdatedAt: lead.crm.updated_at } : {}) } });
+      await qc.invalidateQueries({ queryKey: ["lead", key] });
+      await qc.invalidateQueries({ queryKey: ["leads"] });
+      return true;
+    } catch (error) {
+      setNotes(previousNotes);
+      toast.error(error instanceof Error ? error.message : "Could not save");
+      await qc.invalidateQueries({ queryKey: ["lead", key] });
+      return false;
+    }
   }
 
   if (isLoading) return <div className="flex min-h-screen items-center justify-center bg-background"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
@@ -45,9 +55,13 @@ function LeadPage() {
   const primary = lead.records[0] as any;
   const fields: any = Object.assign({}, ...lead.records.map((r: any) => r.fields ?? {}));
   const people = lead.links.filter((l: any) => l.node.category === "primary_entity" && l.node.entity_type === "person");
+  const employers = lead.links.filter((l: any) => l.relation === "works_at" && l.node.entity_type === "company");
+  const painContacts = lead.links.filter((l: any) => l.relation === "best_contact_for");
+  const proof = lead.links.filter((l: any) => l.relation === "evidences" && l.node.category === "source_chunk");
+  const context = lead.links.filter((l: any) => l.relation !== "evidences" && l.node.category === "source_chunk");
+  const overrides = lead.crm?.overrides ?? {};
   const signals = lead.links.filter((l: any) => l.node.category === "note" && l.node.semantic_kind === "demand_signal");
   const notesFound = lead.links.filter((l: any) => l.node.category === "note" && l.node.semantic_kind !== "demand_signal");
-  const sources = lead.links.filter((l: any) => l.node.category === "source_chunk");
   const writeup = lead.records.map((r: any) => r.free_text).filter(Boolean).join("\n\n---\n\n");
   const stage = lead.crm?.stage ?? "new";
   const starred = lead.crm?.starred ?? false;
@@ -104,38 +118,63 @@ function LeadPage() {
               <Section title={`Other findings (${notesFound.length})`}>{notesFound.map((s: any, i: number) => <NoteCard key={i} l={s} />)}</Section>
             )}
 
-            <Section title={`Sources (${sources.length})`}>
-              {sources.length === 0 ? <Empty>No sources linked.</Empty> : (
-                <ul className="space-y-2">
-                  {sources.map((s: any, i: number) => (
-                    <li key={i} className="rounded-md border border-border bg-background p-3 text-xs">
-                      <div className="flex items-center justify-between gap-2">
-                        <a href={s.node.locator ?? "#"} target="_blank" rel="noreferrer" className="truncate font-semibold text-chunk hover:underline">{s.node.title}</a>
-                        <span className={`font-data uppercase ${s.polarity === "contradicts" ? "text-destructive" : "text-muted-foreground"}`}>{s.relation}{s.polarity ? ` · ${s.polarity}` : ""}</span>
-                      </div>
-                      {s.rationale && <p className="mt-1 text-muted-foreground">{s.rationale}</p>}
-                      {s.node.content && <p className="mt-1 line-clamp-3 text-muted-foreground/80">{s.node.content}</p>}
-                    </li>
-                  ))}
-                </ul>
-              )}
+            {lead.conflicts.length > 0 && (
+              <Section title="Disagreeing research">
+                {lead.conflicts.map((conflict: { field: string; values: { runId: string; value: string }[] }) => (
+                  <div key={conflict.field} className="mb-2 text-sm">
+                    <div className="font-semibold">{conflict.field}</div>
+                    {conflict.values.map((value) => <div key={value.runId} className="text-xs text-muted-foreground">{value.value}</div>)}
+                  </div>
+                ))}
+              </Section>
+            )}
+
+            <Section title={`Evidence (${lead.evidenceCount})`}>
+              {proof.length === 0 ? <Empty>No supporting passages yet. Retrieval context is listed separately and is not proof.</Empty> : proof.map((s: any, i: number) => <SourceCard key={i} l={s} />)}
             </Section>
+            {context.length > 0 && (
+              <Section title={`Retrieved context (${context.length})`}>
+                <p className="mb-2 text-xs text-muted-foreground">These links show where a source was found. They are not evidence.</p>
+                {context.map((s: any, i: number) => <SourceCard key={i} l={s} />)}
+              </Section>
+            )}
           </div>
 
           <div className="space-y-6">
-            <Section title={`People (${people.length})`} icon={<User className="h-4 w-4" />}>
-              {people.length === 0 ? <Empty>No contacts found yet.</Empty> : people.map((p: any, i: number) => (
+            <Section title={lead.kind === "person" ? `Employment (${employers.length})` : `People (${people.length})`} icon={<User className="h-4 w-4" />}>
+              {(lead.kind === "person" ? employers : people).length === 0 ? <Empty>{lead.kind === "person" ? "Employer unknown." : "No people linked yet."}</Empty> : (lead.kind === "person" ? employers : people).map((p: any, i: number) => (
                 <div key={i} className="mb-2 rounded-md border border-border bg-background p-3">
-                  <div className="font-semibold">{p.node.title}</div>
-                  <div className="text-xs text-muted-foreground">{p.node.fields?.role ?? "—"}{p.node.fields?.founder_or_ceo ? " · Founder/CEO" : ""}</div>
-                  {p.relation === "best_contact_for" && <div className="mt-1 font-data text-[10px] uppercase text-primary">Best contact</div>}
+                  {p.recordId ? <Link to="/leads/$key" params={{ key: p.recordId }} className="font-semibold hover:text-primary">{p.node.title}</Link> : <div className="font-semibold">{p.node.title}</div>}
+                  <div className="text-xs text-muted-foreground">{p.node.fields?.role ?? "Role unknown"}{p.node.fields?.founder_or_ceo ? " · Founder/CEO" : ""}</div>
+                  {p.stance && <div className="mt-1 font-data text-[10px] uppercase text-muted-foreground">{p.stance === "current" ? "Current" : p.stance === "historical" ? "Historical" : "Contradicted"}</div>}
+                  {p.rationale && <p className="mt-1 text-xs text-muted-foreground">{p.rationale}</p>}
                 </div>
               ))}
+            </Section>
+            {painContacts.length > 0 && (
+              <Section title="Why this contact">
+                {painContacts.map((p: any, i: number) => (
+                  <div key={i} className="mb-2 text-sm">
+                    <div className="font-semibold">{p.node.title}</div>
+                    <p className="text-xs text-muted-foreground">{p.rationale || p.node.free_text || "Linked through the pain note, not assumed to be the company."}</p>
+                  </div>
+                ))}
+              </Section>
+            )}
+            <Section title="Your corrections">
+              {["website", "location", "size", "role"].map((field) => (
+                <label key={field} className="mb-2 block text-xs text-muted-foreground">
+                  {field}
+                  <input value={drafts[field] ?? overrides[field] ?? ""} onChange={(e) => setDrafts((current) => ({ ...current, [field]: e.target.value }))} className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground" />
+                </label>
+              ))}
+              <button onClick={() => patch({ overrides: drafts })} className="rounded-md border border-border px-3 py-1.5 text-xs">Save corrections</button>
+              <p className="mt-2 text-[11px] text-muted-foreground">Corrections stay on this CRM record. The researched values remain on the run.</p>
             </Section>
 
             <Section title="Your notes">
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={6} placeholder="Outreach plan, call notes…" className="w-full rounded-md border border-input bg-background p-2 text-sm outline-none focus:border-primary" />
-              <button onClick={async () => { await patch({ notes }); toast.success("Notes saved"); }} className="mt-2 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground">Save notes</button>
+              <button onClick={async () => { if (await patch({ notes })) toast.success("Notes saved"); }} className="mt-2 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground">Save notes</button>
             </Section>
 
             <Section title="Found in searches">
@@ -170,6 +209,17 @@ function Empty({ children }: { children: React.ReactNode }) {
 function Conf({ v }: { v: string }) {
   const c = v === "high" ? "text-primary" : v === "low" ? "text-destructive" : "text-chunk";
   return <span className={`shrink-0 font-data text-[10px] uppercase ${c}`}>{v}</span>;
+}
+function SourceCard({ l }: { l: any }) {
+  return (
+    <div className="mb-2 rounded-md border border-border bg-background p-3 text-xs">
+      <div className="flex items-center justify-between gap-2">
+        <a href={l.node.locator ?? "#"} target="_blank" rel="noreferrer" className="truncate font-semibold text-chunk hover:underline">{l.node.title}</a>
+        <span className={`font-data uppercase ${l.polarity === "contradicts" ? "text-destructive" : "text-muted-foreground"}`}>{l.relation}{l.polarity ? ` · ${l.polarity}` : ""}</span>
+      </div>
+      {l.node.content && <p className="mt-1 line-clamp-3 text-muted-foreground/80">{l.node.content}</p>}
+    </div>
+  );
 }
 function NoteCard({ l }: { l: any }) {
   return (
