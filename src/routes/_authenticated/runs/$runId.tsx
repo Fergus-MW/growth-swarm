@@ -297,7 +297,8 @@ function LiveRunPage() {
           </div>
           {Array.from({ length: Math.ceil(run.swarm_size / 2) }, (_, index) => (
             <AgentActivityPanel
-              key={index}
+              key={`${runId}-${index}`}
+              runId={runId}
               index={index}
               events={events.filter((event) => event.agent_index === index)}
               votes={(data?.votes ?? []).filter((vote) => vote.agent_index === index)}
@@ -375,7 +376,8 @@ function LiveRunPage() {
             const index = Math.ceil(run.swarm_size / 2) + offset;
             return (
               <AgentActivityPanel
-                key={index}
+                key={`${runId}-${index}`}
+                runId={runId}
                 index={index}
                 events={events.filter((event) => event.agent_index === index)}
                 votes={(data?.votes ?? []).filter((vote) => vote.agent_index === index)}

@@ -42,6 +42,8 @@ it("researches a blank brief as cited findings rather than company prospecting",
   const run = fixtureRun({ swarm_size: 5 });
   const db = createFixtureDatabase({ runs: [run] });
   await executeWindow(db, run.id);
+  expect(db.tables.runs[0]?.["status"]).toBe("completed");
+  expect(db.tables.runs[0]?.["outcome"]).toBe("consensus");
   expect(db.tables.nodes).toContainEqual(
     expect.objectContaining({ category: "note", title: "Fictional ash hazard" }),
   );
