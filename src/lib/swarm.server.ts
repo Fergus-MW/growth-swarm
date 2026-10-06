@@ -905,6 +905,10 @@ async function checkpoint(db: Db, run: RunRow, generation: number) {
 export async function executeWindow(db: Db, runId: string): Promise<{ status: string; stats: Record<string, any> }> {
   const { data: run } = await db.from("runs").select("*").eq("id", runId).single();
   if (!run) throw new Error("Run not found");
+  if (run.status === "stopping" || (run.status === "running" && run.stop_requested)) {
+    await finishRun(db, run, "stopped_by_user");
+    return { status: run.status, stats: run.stats ?? {} };
+  }
   if (run.status !== "running") {
     return { status: run.status, stats: run.stats ?? {} };
   }
@@ -922,11 +926,12 @@ export async function executeWindow(db: Db, runId: string): Promise<{ status: st
   while (Date.now() < deadline) {
     // Control checks: stop flag, budgets, wall clock.
     const { data: fresh } = await db.from("runs").select("stop_requested, status, spend, started_at").eq("id", runId).single();
-    if (!fresh || fresh.status !== "running") break;
-    if (fresh.stop_requested) {
+    if (!fresh) break;
+    if (fresh.stop_requested || fresh.status === "stopping") {
       await finishRun(db, run, "stopped_by_user");
       break;
     }
+    if (fresh.status !== "running") break;
     if (Number(fresh.spend) >= Number(run.cost_cap)) {
       await finishRun(db, run, "budget_cost");
       break;
