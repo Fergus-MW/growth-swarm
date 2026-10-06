@@ -164,6 +164,10 @@ export function createFixtureDatabase(seed: Partial<Record<Table, FixtureRow[]>>
         predicates.push((row) => Number(row[column]) > value);
         return query;
       },
+      lt(column: string, value: number) {
+        predicates.push((row) => Number(row[column]) < value);
+        return query;
+      },
       ilike(column: string, value: string) {
         predicates.push((row) => String(row[column]).toLowerCase() === value.toLowerCase());
         return query;

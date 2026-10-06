@@ -53,3 +53,21 @@ test("fixture inserts retain defaults, source records and ordered event pages", 
   assert.equal(count.count, 1);
   assert.equal(count.data, null);
 });
+
+test("archived event pages support a before cursor", async () => {
+  const db = createFixtureDatabase({
+    events: [
+      { id: 1, agent_index: 99 },
+      { id: 2, agent_index: 99 },
+      { id: 3, agent_index: 99 },
+    ],
+  });
+  const page = await db
+    .from("events")
+    .select("*")
+    .eq("agent_index", 99)
+    .lt("id", 3)
+    .order("id", { ascending: false })
+    .limit(1);
+  assert.deepEqual(page.data, [{ id: 2, agent_index: 99 }]);
+});
