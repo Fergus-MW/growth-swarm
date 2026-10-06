@@ -14,6 +14,22 @@ function harness() {
   const run=store.create(config,crypto.randomUUID());
   return {dir,store,run,cleanup:()=>{store.close();rmSync(dir,{recursive:true,force:true});}};
 }
+test('claiming another task preserves a quiet agent history through the execution checkpoint',()=>{
+ const h=harness();try{
+  const fence=h.store.claimExecution(h.run.id);
+  h.store.mutate(h.run.id,fence,state=>{
+   state.traces.push({id:'quiet-agent',agentId:'agent-5',timestamp:'2026-10-06T12:00:00Z',status:'waiting',summary:'Waiting for independent evidence.'});
+   for(let index=0;index<1000;index++)state.traces.push({id:`busy-${index}`,agentId:'agent-1',timestamp:'2026-10-06T12:00:01Z',status:'working',summary:`Source action ${index}`});
+   state.tasks.push({id:'next-task',kind:'discovery',payload:{segment:'x'},targetIds:[],priority:1,status:'open',attempts:0,owner:null,leaseExpiresAt:null,claimToken:null,dedupeKey:'next-task',assessmentVersion:state.run.assessmentVersion,createdAt:'2026-10-06T12:00:02Z',calls:0});
+   assert.equal(claimTask(state,'agent-1')?.id,'next-task');
+  });
+  h.store.checkpoint(h.run.id);
+  const traces=h.store.readCheckpoint(h.run.id).traces;
+  assert.equal(traces.find(trace=>trace.id==='quiet-agent')?.summary,'Waiting for independent evidence.');
+  assert.equal(traces.filter(trace=>trace.agentId==='agent-1').length,100);
+  assert.equal(traces.at(-1)?.status,'working');
+ }finally{h.cleanup();}
+});
 test('five-agent fictional research captures evidence before writes and reaches honest configured-roster consensus',async()=>{
   const h=harness();try{
     const fence=h.store.claimExecution(h.run.id);await executeRun(h.store,h.run.id,fence,new AbortController().signal);
@@ -102,5 +118,15 @@ test('fair queues reserve room for contacts even when discovery has a large fron
       for(let i=0;i<5;i++){const task=claimTask(s,`agent-${i+1}`);if(task)selected.push(task.kind);}
     });
     assert.ok(selected.includes('contacts'));assert.equal(selected.length,5);
+  }finally{h.cleanup();}
+});
+
+test('seven percent of a 100-agent roster requires exactly seven votes',async()=>{
+  const h=harness();try{
+    const run=h.store.create({...h.run.config,swarmSize:100,threshold:.07},'seven-percent');
+    await executeRun(h.store,run.id,h.store.claimExecution(run.id),new AbortController().signal);
+    const state=h.store.getState(run.id);
+    assert.ok(state.traces.some(trace=>trace.status==='vote'&&trace.summary.includes('; 7 required.')),state.traces.filter(trace=>trace.status==='vote').map(trace=>trace.summary).join('\n'));
+    assert.equal(state.run.config.threshold,.07);
   }finally{h.cleanup();}
 });

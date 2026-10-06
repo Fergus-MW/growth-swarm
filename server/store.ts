@@ -4,7 +4,9 @@ import { mkdirSync, writeFileSync, readFileSync, renameSync, existsSync, openSyn
 import { resolve, join } from 'node:path';
 import { ACTIVE_OUTCOMES, type RunConfig, type RunState, type Run, type Outcome, type StreamEvent, type Invocation, type GraphNode } from '../shared/types.ts';
 import { AppError, DEFAULT_SCHEMA } from './config.ts';
+import { MODEL_ENDPOINT } from './model.ts';
 import { validateNode } from './validation.ts';
+import { retainAgentTraces } from './traces.ts';
 
 const hash = (value: unknown) => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex');
 const now = () => new Date().toISOString();
@@ -80,7 +82,7 @@ export class Store {
       if (parent.run.config.mode !== config.mode && config.reuseParentSources) throw new AppError(400,'Do not reuse fictional fixture evidence in a live run. Turn off inherited evidence or keep the same mode.');
     }
     const id = randomUUID(); const timestamp = now();
-    const run: Run = { id, tenantId:'local',userId:'local',title:config.objective.slice(0,120),config:structuredClone(config),outcome:'ready',createdAt:timestamp,startedAt:null,finishedAt:null,checkpointAt:null,generation:0,revision:0,sequence:0,fence:0,stopRequested:false,parentId:parentId||null,parentGeneration:parent?.run.generation||null,lineage:parent?[...parent.run.lineage,parent.run.id]:[],assessmentVersion:randomUUID(),usage:{spent:0,reserved:0,calls:0,inputTokens:0,outputTokens:0,bytes:0,connectorCalls:{}},error:null,counts:{primary_entity:0,note:0,source_chunk:0},quality:null,modelEndpoint:config.mode==='demo'?'fixture://deterministic':'https://generativelanguage.googleapis.com',costPolicyVersion:'explicit-upper-bound-1' };
+    const run: Run = { id, tenantId:'local',userId:'local',title:config.objective.slice(0,120),config:structuredClone(config),outcome:'ready',createdAt:timestamp,startedAt:null,finishedAt:null,checkpointAt:null,generation:0,revision:0,sequence:0,fence:0,stopRequested:false,parentId:parentId||null,parentGeneration:parent?.run.generation||null,lineage:parent?[...parent.run.lineage,parent.run.id]:[],assessmentVersion:randomUUID(),usage:{spent:0,reserved:0,calls:0,inputTokens:0,outputTokens:0,bytes:0,connectorCalls:{}},error:null,counts:{primary_entity:0,note:0,source_chunk:0},quality:null,modelEndpoint:config.mode==='demo'?'fixture://deterministic':MODEL_ENDPOINT,costPolicyVersion:'explicit-upper-bound-1' };
     const state:RunState = {run,schema:parent?.schema||structuredClone(DEFAULT_SCHEMA),nodes:[],edges:[],assertions:[],tasks:[],agents:Array.from({length:config.swarmSize},(_,i)=>({id:`agent-${i+1}`,name:`Agent ${String(i+1).padStart(2,'0')}`,status:'idle',taskId:null,completedTasks:0,summary:'Waiting to start'})),invocations:[],votes:[],traces:[],discovery:{segments:[],coveredSegments:[],recentEligibleCounts:[]}};
     if (parent && config.reuseParentSources) {
       state.nodes = structuredClone(parent.nodes).map(n=>({...n,runId:id,historical:n.category!=='source_chunk',status:n.category==='primary_entity'?'candidate' as const:n.status}));
@@ -114,7 +116,7 @@ export class Store {
       if (graphChanged && oldOutcome==='evaluating') throw new AppError(409,'Research writes are frozen during evaluation.');
       if (graphChanged && !['ready',...ACTIVE_OUTCOMES].includes(oldOutcome) && !(oldOutcome==='budget_storage'&&eventType==='capture')) throw new AppError(409,'A terminal run is immutable.');
       if (graphChanged) state.run.revision++;
-      state.run.sequence++; this.recount(state); state.traces=state.traces.slice(-1000);
+      state.run.sequence++; this.recount(state); state.traces=retainAgentTraces(state.traces);
       event={type:eventType,sequence:state.run.sequence,revision:state.run.revision,data:state};
       this.save(state); this.db.prepare('INSERT INTO events(run_id,sequence,event) VALUES(?,?,?)').run(id,state.run.sequence,JSON.stringify({type:eventType,sequence:state.run.sequence,revision:state.run.revision,data:{checkpointRequired:true}}));
       return state;

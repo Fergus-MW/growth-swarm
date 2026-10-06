@@ -7,6 +7,7 @@ import { Radar, Square, Download, GitBranch, Loader2, FileText, Building2, User,
 import { getRun, stopRun, executeWindow, continueRun, exportRun } from "@/lib/runs.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { GraphCanvas, type GraphNode, type GraphEdge } from "@/components/GraphCanvas";
+import { requiredAgreement } from "../../../../shared/consensus";
 
 export const Route = createFileRoute("/_authenticated/runs/$runId")({
   head: () => ({
@@ -119,7 +120,7 @@ function LiveRunPage() {
   const selected = useMemo(() => data?.nodes.find((n) => n.id === selectedId) ?? null, [data?.nodes, selectedId]);
 
   const stats = (run?.stats ?? {}) as { companies?: number; qualified?: number; signals?: number; people?: number; chunks?: number; openTasks?: number; doneTasks?: number };
-  const needed = run ? Math.ceil(run.threshold * run.swarm_size) : 0;
+  const needed = run ? requiredAgreement(run.swarm_size, run.threshold) : 0;
   const latestEpoch = data?.votes?.[0]?.epoch ?? 0;
   const yesVotes = data?.votes?.filter((v) => v.epoch === latestEpoch && v.decision === "yes").length ?? 0;
 
