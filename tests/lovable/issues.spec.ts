@@ -127,7 +127,7 @@ test("generic task reaches Completed with stored evidence and history", async ({
   ).toBeVisible();
 });
 
-test("failed agent evaluations remain Failed with saved explanations", async ({ page }) => {
+test("failed agent evaluations remain Failed with saved failure traces", async ({ page }) => {
   await page.goto("/setup?fixture=voter-error");
   await page
     .getByRole("textbox", { name: "Task description" })
@@ -135,8 +135,14 @@ test("failed agent evaluations remain Failed with saved explanations", async ({ 
   await page.getByRole("button", { name: "Start", exact: true }).click();
   await expect(page.getByRole("banner").getByText("Failed", { exact: true })).toBeVisible();
   const agent = page.getByRole("article", { name: "Agent 01", exact: true });
-  await agent.locator("summary", { hasText: "Decision explanations" }).click();
-  await expect(agent.getByText("Synthetic model refusal", { exact: true })).toBeVisible();
+  await agent.locator("summary", { hasText: "Trace history" }).click();
+  await expect(
+    agent
+      .getByText("The action failed. Recorded source details remain in the source ledger.", {
+        exact: true,
+      })
+      .first(),
+  ).toBeVisible();
 });
 
 test("manual Stop preserves the actual run and its partial checkpoint", async ({ page }) => {
@@ -183,4 +189,16 @@ test("disabled connector records honest gaps without invoking web search", async
   expect(saved.invocations).toHaveLength(0);
   expect(saved.nodes.filter((node) => node.category === "source_chunk")).toHaveLength(0);
   expect(saved.nodes.some((node) => node.category === "note")).toBeTruthy();
+});
+
+test("agent 100 can browse an earliest saved action beyond its live buffer", async ({ page }) => {
+  await page.goto("/runs/fixture-archive?fixture=archive");
+  const last = page.getByRole("article", { name: "Agent 100", exact: true });
+  await expect(last.locator("summary", { hasText: "Trace history (100)" })).toBeVisible();
+  await last.getByRole("button", { name: "Browse older saved history", exact: true }).click();
+  await expect(last.getByText("Saved history page · 25 entries", { exact: true })).toBeVisible();
+  await last.locator("summary", { hasText: "Trace history" }).click();
+  await expect(last.getByText("Saved fictional action 1", { exact: true })).toBeVisible();
+  await last.getByRole("button", { name: "Latest activity", exact: true }).click();
+  await expect(last.getByText("Saved fictional action 125", { exact: true }).first()).toBeVisible();
 });
