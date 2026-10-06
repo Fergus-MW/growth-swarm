@@ -1,0 +1,52 @@
+import { test, expect } from '@playwright/test';
+import type { Bootstrap, Run, RunState } from '../../shared/types';
+
+test('the graph view retains a distinct inspectable panel for all 100 agents', async ({ page, request }) => {
+ const bootstrap = await (await request.get('/api/bootstrap')).json() as Bootstrap;
+ const response = await request.post('/api/runs', { headers: { 'Idempotency-Key': 'execution-100' }, data: { config: { ...bootstrap.defaults, swarmSize: 100 } } });
+ expect(response.ok()).toBeTruthy();
+ const run = await response.json() as Run;
+ await page.goto('/');
+ await page.getByRole('button', { name: /Research runs/ }).click();
+ await page.locator('.run-card').filter({ hasText: run.title }).getByRole('button', { name: 'Open', exact: true }).click();
+ await expect(page.getByRole('tab', { name: /Knowledge graph/ })).toHaveAttribute('aria-selected', 'true');
+ await expect(page.locator('.execution-stage .trace-card')).toHaveCount(100);
+ const last = page.getByRole('article', { name: 'Agent 100', exact: true });
+ await last.getByText('Trace history', { exact: false }).click();
+ await expect(last.getByText('No activity recorded yet.', { exact: true })).toBeVisible();
+ await expect(page.locator('.graph-panel')).toBeVisible();
+ expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBeTruthy();
+});
+
+test('live graph growth leaves source actions, trace history and decisions inspectable after completion', async ({ page, request }) => {
+ const bootstrap = await (await request.get('/api/bootstrap')).json() as Bootstrap;
+ const response = await request.post('/api/runs', { headers: { 'Idempotency-Key': 'execution-history' }, data: { config: { ...bootstrap.defaults, swarmSize: 5, objective: 'Find companies with finance teams reconciling invoices across acquired ERP systems; execution history fixture.', criteria: { ...bootstrap.defaults.criteria, text: 'Find at least 5 qualified companies, each supported by two independent source origins. At least 80% need a dated demand signal. Every qualified company needs a founder or CEO and another named relevant contact.', minCompanies: 5, saturationAttempts: 0 } } } });
+ expect(response.ok()).toBeTruthy();
+ const run = await response.json() as Run;
+ await page.goto('/');
+ await page.getByRole('button', { name: /Research runs/ }).click();
+ await page.locator('.run-card').filter({ hasText: run.title }).first().getByRole('button', { name: 'Open', exact: true }).click();
+ await expect(page.locator('.execution-stage .trace-card')).toHaveCount(5);
+ const first = page.getByRole('article', { name: 'Agent 01', exact: true });
+ await first.getByText('Trace history', { exact: false }).click();
+ await page.getByRole('button', { name: 'Begin execution', exact: true }).click();
+ await expect(page.getByRole('button', { name: 'Stop research', exact: true })).toBeVisible();
+ await expect(page.getByRole('button', { name: 'Continue research', exact: true })).toBeVisible({ timeout: 25000 });
+ const state = await (await request.get(`/api/runs/${run.id}/snapshot`)).json() as RunState;
+ expect(state.nodes.length).toBeGreaterThan(0);expect(state.edges.length).toBeGreaterThan(0);
+ await expect(page.locator('.graph-panel canvas').first()).toBeVisible();
+ const history = first.locator('.agent-history').filter({ has: page.locator('summary', { hasText: 'Trace history' }) });
+ await expect(history).toHaveAttribute('open', '');
+ await expect(history.getByText(state.traces.find(trace => trace.agentId === 'agent-1')!.summary, { exact: true })).toBeVisible();
+ await first.getByText('Source actions & results', { exact: false }).click();
+ await expect(first.getByText(state.invocations.find(invocation => invocation.agentId === 'agent-1')!.query, { exact: true }).last()).toBeVisible();
+ await first.locator('summary', { hasText: 'Decision explanations' }).click();
+ await expect(first.getByText(state.votes.find(vote => vote.agentId === 'agent-1')!.rationale, { exact: true }).last()).toBeVisible();
+ await expect(first.locator('.agent-state')).toContainText('Completed');
+ await page.getByRole('button', { name: 'Refresh checkpoint', exact: true }).click();
+ await expect(history).toHaveAttribute('open', '');
+ await page.setViewportSize({ width: 390, height: 844 });
+ expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBeTruthy();
+ await expect(page.locator('.graph-panel')).toBeVisible();
+ await expect(page.locator('.execution-stage .trace-card')).toHaveCount(5);
+});

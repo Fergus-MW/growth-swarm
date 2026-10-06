@@ -20,7 +20,6 @@ export class LimitError extends Error { constructor(public outcome: Outcome, mes
 
 function trace(s: RunState, agentId: string, status: string, summary: string, taskId?: string, nodeId?: string) {
   s.traces.push({ id: id(), timestamp: now(), agentId, status, summary: summary.slice(0, 700), taskId, nodeId });
-  if (s.traces.length > 1000) s.traces.splice(0, s.traces.length - 1000);
 }
 function addTask(s: RunState, kind: TaskKind, payload: Record<string, unknown>, targetIds: string[] = [], reservedFor?: string): Task {
   const dedupeKey = hash(JSON.stringify({ kind, payload, targetIds: [...targetIds].sort(), assessment: s.run.assessmentVersion, connectors: [...s.run.config.connectorIds].sort(), window: s.run.config.signalWindowMonths }));
