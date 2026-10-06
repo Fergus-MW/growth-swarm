@@ -60,8 +60,8 @@ function CrmRecordPage() {
               </p>
               <h1 className="text-3xl font-bold">{detail.record.title}</h1>
               <p className="mt-2 text-sm text-muted-foreground">
-                {detail.evidenceCount} supporting sources · {detail.contactCount} distinct related
-                contacts · {detail.runs.length} research runs
+                {detail.evidenceCount} referenced evidence sources · {detail.contactCount} distinct
+                related contacts · {detail.runs.length} research runs
               </p>
             </header>
             <div className="grid gap-6 lg:grid-cols-3">

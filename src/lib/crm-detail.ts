@@ -52,6 +52,7 @@ export function resolveEvidenceSpan(
       !Number.isInteger(ref.end) ||
       ref.start < 0 ||
       ref.end <= ref.start ||
+      ref.end > content.length ||
       content.slice(ref.start, ref.end) !== ref.quote
     )
       return null;

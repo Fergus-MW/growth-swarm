@@ -98,6 +98,7 @@ describe("CRM record evidence and relationships", () => {
     ])[0]!;
     expect(resolveEvidenceSpan("The supported claim.", ref)).toEqual({ start: 4, end: 13 });
     expect(resolveEvidenceSpan("The supported claim.", { ...ref, end: 14 })).toBeNull();
+    expect(resolveEvidenceSpan("supported", { ...ref, start: 0, end: 999 })).toBeNull();
     expect(
       resolveEvidenceSpan("supported supported", { ...ref, start: null, end: null }),
     ).toBeNull();
