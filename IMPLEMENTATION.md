@@ -16,6 +16,12 @@ The user narrowed the PRD to a standalone local development backend using Tavily
 | Interface | Cosmos live graph, Sigma exploration, details, source ledger, trace ring/grid, accessible tables | Browser smoke coverage; 100-agent/thousands-node growing-graph performance not certified |
 | Exports | JSON interchange/state, Markdown vault ZIP/raw sources, private HTML | Sanitization and category/provenance tests; no public deployment |
 
+## Cosmos live graph
+
+The live run view mounts one `@cosmos.gl/graph` 3.5.0 instance. Updates go through `src/graph/session.ts`: active subarrays only, survivor positions kept, filtered nodes hidden rather than reseeded, and early delta edges queued until both ends exist. Automatic framing uses the 2nd–98th percentile once per settle cycle (alpha end or eight seconds) and stops after pointer, wheel, keyboard, focus, or Fit view. Reduced motion skips automatic fits and simulation.
+
+The growth check in `src/graph/benchmark.test.ts` builds 2,500 points and 4,000 links, then adds one point, on the CPU session. On this machine that case finished in 17ms of vitest wall time and issued two position uploads. The 2,000ms assertion is only a ceiling, separate from that measurement. GPU upload, readback, and frame time were not measured: this environment did not run a WebGL browser benchmark, so no frame-latency or peak-GPU figure is claimed. A lost WebGL context surfaces an error and does not fall back to another engine.
+
 Known product limits requiring further release work: evaluation context is bounded and may vote no when the complete evidence cannot fit; source-origin independence is conservative and cannot prove that separate publishers are editorially independent; local generated schema validation is supported but there is no platform schema migration or canonical promotion; checkpoint cost grows with the full graph; snapshot stream frames use coherent full state rather than a compressed per-object delta protocol. These do not justify suppressing gaps or claiming research consensus when deterministic criteria fail.
 
 Verified locally: production build and TypeScript checks pass; 42 backend/integration tests and 3 Chromium browser workflows pass, including desktop continuation/export, mobile stop, and a 100-agent fixture roster. npm audit reports zero vulnerabilities. No paid provider calls or cloud performance benchmarks were run.
