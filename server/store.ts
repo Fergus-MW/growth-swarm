@@ -5,6 +5,7 @@ import { resolve, join } from 'node:path';
 import { ACTIVE_OUTCOMES, type RunConfig, type RunState, type Run, type Outcome, type StreamEvent, type Invocation, type GraphNode } from '../shared/types.ts';
 import { AppError, DEFAULT_SCHEMA } from './config.ts';
 import { validateNode } from './validation.ts';
+import { retainAgentTraces } from './traces.ts';
 
 const hash = (value: unknown) => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex');
 const now = () => new Date().toISOString();
@@ -114,7 +115,7 @@ export class Store {
       if (graphChanged && oldOutcome==='evaluating') throw new AppError(409,'Research writes are frozen during evaluation.');
       if (graphChanged && !['ready',...ACTIVE_OUTCOMES].includes(oldOutcome) && !(oldOutcome==='budget_storage'&&eventType==='capture')) throw new AppError(409,'A terminal run is immutable.');
       if (graphChanged) state.run.revision++;
-      state.run.sequence++; this.recount(state); state.traces=state.traces.slice(-1000);
+      state.run.sequence++; this.recount(state); state.traces=retainAgentTraces(state.traces);
       event={type:eventType,sequence:state.run.sequence,revision:state.run.revision,data:state};
       this.save(state); this.db.prepare('INSERT INTO events(run_id,sequence,event) VALUES(?,?,?)').run(id,state.run.sequence,JSON.stringify({type:eventType,sequence:state.run.sequence,revision:state.run.revision,data:{checkpointRequired:true}}));
       return state;

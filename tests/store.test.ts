@@ -12,6 +12,21 @@ function config(){return {...defaultConfig(),mode:'demo' as const,connectorIds:[
 function chunk(runId:string):GraphNode{const body='Captured original passage';return {id:'chunk-1',category:'source_chunk',title:'Original',tenantId:'local',runId,originRunId:runId,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),version:1,access:{tenantId:'local',connectorIds:['fixture-web']},body,aliases:[],tags:[],evidence:[],source:{connectorId:'fixture-web',provider:'fixture',invocationId:'invocation-1',locator:null,sourceIdentity:'original',origin:'fixture',contentHash:createHash('sha256').update(body).digest('hex'),mimeType:'text/plain',format:'text',publishedAt:null,eventAt:null,fetchedAt:new Date().toISOString(),offsets:{start:0,end:body.length}}};}
 function invocation(runId:string):Invocation{return {id:'invocation-1',runId,agentId:'agent-1',taskId:'task-1',connectorId:'fixture-web',provider:'fixture',operation:'search',query:'original',queryHash:'query',status:'succeeded',startedAt:new Date().toISOString(),finishedAt:new Date().toISOString(),chunkIds:['chunk-1'],returnedCount:1,cost:0,reservedCost:0,truncated:false};}
 
+test('busy agents cannot evict another agent trace history from saved checkpoints',()=>{
+ const {dir,store}=setup();try{
+  const run=store.create(config(),'agent-history');const fence=store.claimExecution(run.id);
+  store.mutate(run.id,fence,state=>{
+   state.traces.push({id:'quiet',agentId:'agent-5',timestamp:'2026-10-06T12:00:00Z',status:'waiting',summary:'Waiting for independent evidence.'});
+   for(let index=0;index<1001;index++)state.traces.push({id:`busy-${index}`,agentId:'agent-1',timestamp:'2026-10-06T12:00:01Z',status:'working',summary:`Source action ${index}`});
+  });
+  store.checkpoint(run.id);
+  const traces=store.readCheckpoint(run.id).traces;
+  assert.equal(traces.find(trace=>trace.id==='quiet')?.summary,'Waiting for independent evidence.');
+  assert.equal(traces.filter(trace=>trace.agentId==='agent-1').length,100);
+  assert.equal(traces.at(-1)?.id,'busy-1000');
+ }finally{store.close();rmSync(dir,{recursive:true,force:true});}
+});
+
 test('creation is durable and idempotent; conflicting retries cannot create a second run',()=>{
  const {dir,store}=setup();try{const first=store.create(config(),'same-key');assert.equal(store.create(config(),'same-key').id,first.id);assert.equal(store.readCheckpoint(first.id).run.outcome,'ready');assert.throws(()=>store.create({...config(),objective:'Different'},'same-key'),/different inputs/);assert.equal(store.list().length,1);}finally{store.close();rmSync(dir,{recursive:true,force:true});}
 });
