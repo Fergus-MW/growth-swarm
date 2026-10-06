@@ -127,7 +127,7 @@ A smaller universe may fail the default counts. Only you can change the criteria
 |---|---|
 | S-1 | You configure 5 to 100 agents. The default is 20. |
 | S-2 | Every agent can read the same graph and propose writes. A committed write is visible at once through the validated storage layer. |
-| S-3 | The default model is Gemini 3.8 Flash. The run records the model and the endpoint. Structured output has to be shown to work before release. |
+| S-3 | The default model is `gpt-4.1-mini` on the OpenAI API. `OPENAI_MODEL` selects another model. The run records the model and the endpoint. An unavailable model is rejected at admission. Structured output has to be shown to work before release. |
 | S-4 | Web search (Tavily) is the default search option inside the connector catalogue you can access. |
 | S-5 | Each agent periodically evaluates your criteria on its own, against one identified graph revision. |
 | S-6 | A no vote names a gap task reserved for that agent. If another task already covers the gap, the voter waits for it or takes another uncovered gap. |

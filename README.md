@@ -1,6 +1,6 @@
 # Growth Swarm
 
-A standalone local research swarm implementing the interactive workflow in [PRD.md](PRD.md), scoped to **Tavily web search only**. React interface, Cosmos live graph, Sigma exploration, Gemini structured research, and a local SQLite control and research store. No platform account, remote database, or cloud deployment is needed.
+A standalone local research swarm implementing the interactive workflow in [PRD.md](PRD.md), scoped to **Tavily web search only**. React interface, Cosmos live graph, Sigma exploration, OpenAI structured research, and a local SQLite control and research store. No platform account, remote database, or cloud deployment is needed.
 
 ## Run locally
 
@@ -13,7 +13,7 @@ npm run dev
 
 Open **http://127.0.0.1:5173**. The API binds to loopback on port 3001. If port 5173 is occupied, run `WEB_PORT=5174 npm run dev` and open that port. The default demo mode runs a clearly labeled fictional corpus through the same scheduler, capture, writer, gates, checkpoint, and export paths, without external calls. Demo results are not real leads. The default 50-company criteria intentionally remain unmet by the small fixture; the application does not lower them to manufacture consensus.
 
-For live research, copy `.env.example` to `.env`, set `TAVILY_API_KEY`, `GEMINI_API_KEY`, an available `GEMINI_MODEL`, and explicit conservative per-call cost ceilings. Restart the API and select **Live research**. The PRD model default (`gemini-3.8-flash`) is checked against the provider metadata endpoint before admission; an unavailable model is rejected, never silently substituted. No live searches or model generations are made during tests. Search-only scope means passages are Tavily snippets, not fetched full pages.
+For live research, copy `.env.example` to `.env`, set `TAVILY_API_KEY`, `OPENAI_API_KEY`, an available `OPENAI_MODEL`, and explicit conservative per-call cost ceilings. Restart the API and select **Live research**. The default model (`gpt-4.1-mini`) is checked against the OpenAI models endpoint before admission; an unavailable model is rejected, never silently substituted. No live searches or model generations are made during tests. Search-only scope means passages are Tavily snippets, not fetched full pages.
 
 ```sh
 npm run build
@@ -35,7 +35,7 @@ The built application is served at **http://127.0.0.1:3001**. Local state stays 
 - `shared/types.ts`: versioned graph, schema, task, evidence, run, and stream contracts.
 - `server/store.ts`: transactional SQLite state and events, idempotent admission, execution fencing, lossless capture journal, checksummed immutable checkpoint generations, recovery, and child creation.
 - `server/engine.ts`: bounded fair task queues, atomic claims and leases, independent async agents, source capture before model input, validated atomic result commits, fixed-revision evaluation, and configured-roster quorum.
-- `server/model.ts`: Gemini SDK structured research and independent evaluation. Models propose authored changes; they cannot create source chunks or change run limits.
+- `server/model.ts`: OpenAI chat completions with strict JSON schema for research and independent evaluation. Models propose authored changes; they cannot create source chunks or change run limits.
 - `server/connectors.ts`: Tavily search and an isolated fictional fixture. Source URLs are not fetched by the server. Credentials never enter model prompts or exports.
 - `server/validation.ts`: typed fields, exact evidence offsets and hashes, semantic endpoint integrity, identity checks, source accounting, and go-to-market criteria.
 - `server/export.ts`: sanitized, stable vault filenames, provenance, source ledger, topology and details, quality diagnostics, and complete original captured text.

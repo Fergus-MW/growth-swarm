@@ -22,7 +22,7 @@ const definitions: SchemaSnapshot['definitions'] = [
 ];
 export const DEFAULT_SCHEMA: SchemaSnapshot = { version: '1', translatorVersion: 'local-1', definitions, hash: createHash('sha256').update(JSON.stringify(definitions)).digest('hex') };
 export function defaultConfig(): RunConfig {
-  const live = !!process.env.TAVILY_API_KEY && !!process.env.GEMINI_API_KEY;
+  const live = !!process.env.TAVILY_API_KEY && !!process.env.OPENAI_API_KEY;
   return {
     profile: 'gtm', objective: 'Find companies whose finance teams reconcile supplier invoices manually across multiple ERP systems after acquisitions.',
     universe: 'UK and Ireland industrials, distribution, and specialist manufacturers; 200–2,000 employees; private-equity-backed or recently acquired.',
@@ -30,7 +30,7 @@ export function defaultConfig(): RunConfig {
     criteria: { text: 'Find at least 50 qualified companies, each supported by two independent source origins. At least 80% need a dated demand signal. Every qualified company needs a founder or CEO and another named relevant contact. Cover every discovery segment and observe 40 discovery attempts without a new eligible company.', minCompanies: 50, signalPercent: 80, requireContacts: true, independentSources: 2, saturationAttempts: 40 },
     swarmSize: 20, threshold: .7, connectorIds: [live ? 'tavily' : 'fixture-web'],
     budget: { money: 10, wallClockMinutes: 30, maxCalls: 1000, maxBytes: 20_000_000, maxChunks: 5000, maxInputTokens: 20_000_000, maxOutputTokens: 4_000_000, connectorCaps: { tavily: 500, 'fixture-web': 500 } },
-    signalWindowMonths: 12, mode: live ? 'live' : 'demo', model: process.env.GEMINI_MODEL || 'gemini-3.8-flash', reuseParentSources: true,
+    signalWindowMonths: 12, mode: live ? 'live' : 'demo', model: process.env.OPENAI_MODEL || 'gpt-4.1-mini', reuseParentSources: true,
   };
 }
 function bounded(value: unknown, name: string, min: number, max: number, integer = false) {
