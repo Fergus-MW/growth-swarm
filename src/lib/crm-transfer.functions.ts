@@ -9,11 +9,17 @@ export const getCrmTransfer = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data) => runInput.parse(data))
   .handler(async ({ data, context }) => {
-    const { data: run, error: runError } = await context.supabase.from("runs")
-      .select("id").eq("id", data.runId).single();
+    const { data: run, error: runError } = await context.supabase
+      .from("runs")
+      .select("id")
+      .eq("id", data.runId)
+      .single();
     if (runError || !run) throw new Error("Run not found");
-    const { data: transfer, error } = await context.supabase.from("crm_transfers")
-      .select("*").eq("run_id", data.runId).maybeSingle();
+    const { data: transfer, error } = await context.supabase
+      .from("crm_transfers")
+      .select("*")
+      .eq("run_id", data.runId)
+      .maybeSingle();
     if (error) throw new Error(error.message);
     return transfer;
   });

@@ -51,10 +51,12 @@ async function emit(db: Db, runId: string, kind: string, agentIndex: number | nu
 }
 
 async function bumpRevision(db: Db, run: RunRow): Promise<number> {
-  const next = (run.graph_revision ?? 0) + 1;
-  run.graph_revision = next;
-  await db.from("runs").update({ graph_revision: next }).eq("id", run.id);
-  return next;
+  // Graph triggers advance the watermark in the same transaction as each
+  // mutation. A later application write must never overwrite that counter.
+  const { data, error } = await db.from("runs").select("graph_revision").eq("id", run.id).single();
+  if (error) throw new Error(error.message);
+  run.graph_revision = data.graph_revision;
+  return data.graph_revision;
 }
 
 async function charge(db: Db, run: RunRow, amount: number) {
@@ -817,6 +819,9 @@ async function computeStats(db: Db, run: RunRow) {
 }
 
 async function evaluateEpoch(db: Db, run: RunRow): Promise<"consensus" | "continue"> {
+  // If any graph write commits after this watermark, finalization's revision
+  // compare-and-set rejects the vote instead of exporting a different graph.
+  await bumpRevision(db, run);
   const epoch = run.epoch + 1;
   run.epoch = epoch;
   await db.from("runs").update({ epoch }).eq("id", run.id);

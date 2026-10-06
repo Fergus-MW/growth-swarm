@@ -19,8 +19,11 @@ insert into public.nodes(id,run_id,category,entity_type,title,fields,free_text,c
  ('15100000-0000-0000-0000-000000000006','15000000-0000-0000-0000-000000000001','note',null,'Supporting note','{}',null,null);
 insert into public.edges(run_id,from_node,to_node,relation) values
  ('15000000-0000-0000-0000-000000000001','15100000-0000-0000-0000-000000000003','15100000-0000-0000-0000-000000000001','works_at');
+select pg_temp.assert_true((select graph_revision=49 from public.runs where id='15000000-0000-0000-0000-000000000001'),'graph mutation advances committed watermark atomically');
+update public.runs set status='completed',outcome='consensus' where id='15000000-0000-0000-0000-000000000001' and graph_revision=42;
+select pg_temp.assert_true(not exists(select 1 from public.crm_transfers where run_id='15000000-0000-0000-0000-000000000001'),'stale evaluated revision cannot finalize');
 update public.runs set status='completed',outcome='consensus' where id='15000000-0000-0000-0000-000000000001';
-select pg_temp.assert_true((select status='ready' and source_count=4 and company_count=2 and person_count=2 and created_count=4 and linked_count=0 and graph_revision=42 from public.crm_transfers where run_id='15000000-0000-0000-0000-000000000001'),'all entities, counts and final revision');
+select pg_temp.assert_true((select status='ready' and source_count=4 and company_count=2 and person_count=2 and created_count=4 and linked_count=0 and graph_revision=49 from public.crm_transfers where run_id='15000000-0000-0000-0000-000000000001'),'all entities, counts and final revision');
 select pg_temp.assert_true((select count(*)=4 from public.crm_record_sources where run_id='15000000-0000-0000-0000-000000000001'),'no note/chunk promoted');
 select pg_temp.assert_true((select snapshot->'fields'->>'status'='excluded' from public.crm_record_sources where node_id='15100000-0000-0000-0000-000000000004'),'excluded person without employer retained');
 select pg_temp.assert_true((select snapshot->>'free_text'='Research prose' and snapshot->>'provenance'='research' from public.crm_record_sources where node_id='15100000-0000-0000-0000-000000000001'),'immutable original prose/provenance snapshot');
@@ -98,7 +101,37 @@ select pg_temp.assert_true(not exists(select 1 from public.crm_records where ide
 select pg_temp.assert_true(not exists(select 1 from public.crm_record_sources where node_id='15100000-0000-0000-0000-000000000001'),'revoked snapshot hidden');
 reset role;
 
--- Deletion cascades without retaining inaccessible cached research.
-delete from public.runs where id='15000000-0000-0000-0000-000000000001';
+select pg_temp.assert_true((select status='failed' and failed_count=2 from public.crm_transfers where run_id='15000000-0000-0000-0000-000000000002'),'revocation marks linked delivery incomplete');
+-- Test revocation recovery separately, then roll back to exercise deletion too.
+savepoint revoked_retry;
+set local role authenticated;
+set local request.jwt.claim.sub = '15000000-0000-0000-0000-000000000099';
+select public.retry_crm_transfer('15000000-0000-0000-0000-000000000002');
+select pg_temp.assert_true((select status='ready' and source_count=3 and created_count=3 from public.crm_transfers where run_id='15000000-0000-0000-0000-000000000002'),'revoked-origin retry restores every surviving entity');
+select pg_temp.assert_true(not exists(select 1 from public.crm_records where free_text='Research prose'),'revocation retry never copies restricted original prose');
+reset role;
+rollback to savepoint revoked_retry;
+
+-- Only the service retention path can override whole-run immutability.
+set local role authenticated;
+do $$ begin
+  begin perform public.delete_research_run_for_retention('15000000-0000-0000-0000-000000000001','Retention policy test'); raise exception 'RETENTION SUCCEEDED AS USER';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+set local role service_role;
+select public.delete_research_run_for_retention('15000000-0000-0000-0000-000000000001','Retention policy test');
+reset role;
+select pg_temp.assert_true(exists(select 1 from private.research_retention_audit where run_id='15000000-0000-0000-0000-000000000001'),'retention deletion audited');
 select pg_temp.assert_true(not exists(select 1 from public.crm_records where origin_run_id='15000000-0000-0000-0000-000000000001'),'source deletion removes cached records');
+select pg_temp.assert_true((select status='failed' and source_count=3 and failed_count=2 from public.crm_transfers where run_id='15000000-0000-0000-0000-000000000002'),'source deletion marks surviving linked run incomplete');
+create temporary table retained_record as select crm_record_id from public.crm_record_sources where run_id='15000000-0000-0000-0000-000000000002';
+set local role authenticated;
+select public.retry_crm_transfer('15000000-0000-0000-0000-000000000002');
+select pg_temp.assert_true((select status='ready' and source_count=3 and created_count=3 from public.crm_transfers where run_id='15000000-0000-0000-0000-000000000002'),'deletion retry restores every surviving entity');
+select pg_temp.assert_true((select count(*)=3 from public.crm_record_sources where run_id='15000000-0000-0000-0000-000000000002'),'all surviving mappings restored');
+select pg_temp.assert_true(exists(select 1 from public.crm_records where title='Changed company name' and free_text is null),'replacement uses surviving source fields only');
+select pg_temp.assert_true(not exists(select 1 from public.crm_records where free_text='Research prose'),'deleted original prose never restored');
+reset role;
+select pg_temp.assert_true(exists(select 1 from public.crm_records where id in (select crm_record_id from retained_record)),'intact CRM identities preserved');
 rollback;

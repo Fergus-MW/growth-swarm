@@ -718,6 +718,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      delete_research_run_for_retention: {
+        Args: { p_run_id: string; p_reason: string }
+        Returns: undefined
+      }
       retry_crm_transfer: {
         Args: { p_run_id: string }
         Returns: Database["public"]["Tables"]["crm_transfers"]["Row"]
