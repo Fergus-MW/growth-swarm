@@ -3,6 +3,7 @@ import type { Agent, EvidenceRef, GraphEdge, GraphNode, Invocation, Outcome, Run
 import { CapturedResponseError, FIXTURE_COMPANIES, getConnectors, hash, PartialResponseError, searchConnector, type SourceItem } from './connectors.js';
 import { evaluate, research, type EdgeDraft, type NodeDraft, type ResearchDraft } from './model.js';
 import { evaluateQuality, validateEdge, validateNode } from './validation.js';
+import { requiredAgreement } from '../shared/consensus.js';
 
 export interface EngineStore {
   getState(id: string): RunState;
@@ -288,7 +289,7 @@ export async function executeRun(store:EngineStore,runId:string,fence:number,sig
         }
         return{agentId:a.id,epoch,revision,criteriaHash,yes,rationale,createdAt:now()};
       }));
-      const required=Math.ceil(frozen.run.config.threshold*frozen.run.config.swarmSize);
+      const required=requiredAgreement(frozen.run.config.swarmSize,frozen.run.config.threshold);
       const passed=Boolean(frozen.run.quality?.passed)&&votes.filter(v=>v.yes).length>=required;
       update(s=>{s.votes.push(...votes);s.run.outcome='running';for(const vote of votes){const a=s.agents.find(a=>a.id===vote.agentId)!;a.status='idle';a.summary=vote.rationale;if(!vote.yes){const gap=s.tasks.find(t=>t.status==='open'&&!t.reservedFor);if(gap){gap.reservedFor=a.id;Object.assign(vote,{gapTaskId:gap.id});}}}trace(s,'coordinator','vote',`${votes.filter(v=>v.yes).length}/${frozen.run.config.swarmSize} yes on revision ${revision}; ${required} required. ${passed?'Consensus reached.':'Criteria remain unmet.'}`);},'votes');
       lastEvaluation=Date.now();return passed;
