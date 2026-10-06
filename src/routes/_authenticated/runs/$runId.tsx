@@ -18,6 +18,7 @@ import {
 import { getRun, stopRun, executeWindow, continueRun, exportRun } from "@/lib/runs.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { GraphCanvas, type GraphNode, type GraphEdge } from "@/components/GraphCanvas";
+import type { Tables } from "@/integrations/supabase/types";
 import { AgentActivityPanel } from "@/components/AgentActivityPanel";
 import { getRunEvents } from "@/lib/leads.functions";
 import { mergeAgentEvents, type AgentEvent } from "@/lib/agent-history";
@@ -445,7 +446,7 @@ function NodeDetail({
   onClose,
   onSelect,
 }: {
-  node: any;
+  node: Tables<"nodes">;
   edges: GraphEdge[];
   nodes: GraphNode[];
   onClose: () => void;
@@ -476,7 +477,11 @@ function NodeDetail({
           </div>
           <h3 className="mt-1 text-sm font-semibold leading-snug">{node.title}</h3>
         </div>
-        <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+        <button
+          aria-label="Close research inspector"
+          onClick={onClose}
+          className="text-muted-foreground hover:text-foreground"
+        >
           ✕
         </button>
       </div>
@@ -582,8 +587,8 @@ function SourceLedger({
   nodes,
   onSelect,
 }: {
-  invocations: any[];
-  nodes: any[];
+  invocations: Tables<"invocations">[];
+  nodes: Tables<"nodes">[];
   onSelect: (id: string) => void;
 }) {
   const chunksByInvocation = new Map<string, number>();

@@ -74,7 +74,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function openRun(swarmSize = 100) {
+async function openRun(swarmSize = 100, nodes: object[] = []) {
   boundary.snapshot.mockResolvedValue({
     run: {
       id: "fixture",
@@ -87,7 +87,7 @@ async function openRun(swarmSize = 100) {
       cost_cap: 5,
       stats: {},
     },
-    nodes: [],
+    nodes,
     edges: [],
     votes: [],
     invocations: [],
@@ -163,7 +163,19 @@ it("loads beyond one durable page without losing quiet agents or duplicating rea
 });
 
 it("streams activity and keeps source actions connected to the existing inspector", async () => {
-  await openRun(5);
+  await openRun(5, [
+    {
+      id: "source-1",
+      category: "source_chunk",
+      title: "Synthetic captured source",
+      content: "Synthetic captured passage",
+      locator: "https://example.invalid/evidence",
+      aliases: [],
+      fields: {},
+      confidence: "high",
+      provenance: "fixture",
+    },
+  ]);
   const panel = await screen.findByRole("article", { name: "Agent 01" });
   act(() =>
     boundary.changed.get("events")?.({
@@ -180,5 +192,14 @@ it("streams activity and keeps source actions connected to the existing inspecto
   expect(within(panel).getAllByRole("button", { name: "Inspect source" }).length).toBeGreaterThan(
     0,
   );
+  act(() => within(panel).getByRole("button", { name: "Inspect source" }).click());
+  const inspector = screen.getByRole("region", { name: "Research inspector" });
+  expect(within(inspector).getByText("Synthetic captured passage")).toBeVisible();
+  expect(within(inspector).getByRole("link")).toHaveAttribute(
+    "href",
+    "https://example.invalid/evidence",
+  );
+  act(() => within(inspector).getByRole("button", { name: "Close research inspector" }).click());
+  expect(screen.queryByRole("region", { name: "Research inspector" })).not.toBeInTheDocument();
   expect(screen.getByText("Completed", { selector: "header span" })).toBeInTheDocument();
 });
