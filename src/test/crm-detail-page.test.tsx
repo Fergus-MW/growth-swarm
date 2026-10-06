@@ -5,7 +5,13 @@ import type { Tables } from "@/integrations/supabase/types";
 import type { readCrmRecord } from "@/lib/crm-detail.server";
 
 const mocks = vi.hoisted(() => ({ query: vi.fn(), refetch: vi.fn(), readRecord: vi.fn() }));
-vi.mock("@tanstack/react-query", () => ({ useQuery: mocks.query }));
+vi.mock("@tanstack/react-query", () => ({
+  useQuery: mocks.query,
+  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+}));
+vi.mock("@/components/CrmRecordEditor", () => ({
+  CrmRecordEditor: () => <section aria-label="CRM workflow">Workflow editor</section>,
+}));
 vi.mock("@tanstack/react-start", () => ({ useServerFn: (fn: unknown) => fn }));
 vi.mock("@/lib/crm-detail.functions", () => ({ getCrmRecord: mocks.readRecord }));
 vi.mock("@/components/AppHeader", () => ({ AppHeader: () => <header>App header</header> }));
