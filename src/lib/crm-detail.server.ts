@@ -2,21 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Tables } from "@/integrations/supabase/types";
 import { evidenceReferences, summarizeRecordContext } from "./crm-detail";
 
-const PAGE_SIZE = 500;
-async function pages<T>(
-  query: (
-    start: number,
-    end: number,
-  ) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
-): Promise<T[]> {
-  const rows: T[] = [];
-  for (let start = 0; ; start += PAGE_SIZE) {
-    const { data, error } = await query(start, start + PAGE_SIZE - 1);
-    if (error) throw new Error(error.message);
-    rows.push(...(data ?? []));
-    if (!data || data.length < PAGE_SIZE) return rows;
-  }
-}
+import { readAllCrmPages as pages } from "./crm-list";
 
 export async function readCrmRecord(
   db: SupabaseClient<Database>,

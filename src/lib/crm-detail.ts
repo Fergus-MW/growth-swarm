@@ -64,6 +64,10 @@ export function resolveEvidenceSpan(
   return { start, end: start + ref.quote.length };
 }
 
+function positiveRelationship(edge: ResearchEdge): boolean {
+  return edge.polarity === null || ["supports", "positive", "affirmed"].includes(edge.polarity);
+}
+
 export function summarizeRecordContext(input: {
   ownerIds: string[];
   nodes: ResearchNode[];
@@ -83,9 +87,7 @@ export function summarizeRecordContext(input: {
     direct
       .filter(
         (edge) =>
-          edge.relation === "works_at" &&
-          owners.has(edge.to_node) &&
-          edge.polarity !== "contradicts",
+          edge.relation === "works_at" && owners.has(edge.to_node) && positiveRelationship(edge),
       )
       .map((edge) => edge.from_node),
   );
@@ -125,7 +127,7 @@ export function summarizeRecordContext(input: {
         ({ node, edge }) =>
           node?.entity_type === "person" &&
           ["works_at", "best_contact_for"].includes(edge.relation) &&
-          edge.polarity !== "contradicts",
+          positiveRelationship(edge),
       )
       .map(({ node }) => node!.id),
   );

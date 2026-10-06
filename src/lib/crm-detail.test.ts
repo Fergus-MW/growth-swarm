@@ -66,6 +66,29 @@ describe("CRM record evidence and relationships", () => {
     expect(context.contactIds).toEqual([]);
   });
 
+  it.each(["historical", "negative", "negated", "contradicts", "unknown"])(
+    "retains %s employment history without counting a current contact or pain recommendation",
+    (polarity) => {
+      const context = summarizeRecordContext({
+        ownerIds: ["company"],
+        nodes: [node("company", "primary_entity", "company"), node("person"), node("pain", "note")],
+        edges: [
+          edge("employment", "works_at", "person", "company", polarity),
+          edge("pain", "holds_pain", "company", "pain"),
+          edge("recommendation", "best_contact_for", "person", "pain"),
+        ],
+        assertions: [],
+      });
+      expect(context.links.map(({ edge: relationship }) => relationship.id)).toContain(
+        "employment",
+      );
+      expect(context.links.map(({ edge: relationship }) => relationship.id)).not.toContain(
+        "recommendation",
+      );
+      expect(context.contactIds).toEqual([]);
+    },
+  );
+
   it("keeps conflicting assertions from separate runs without read-order merging", () => {
     const assertions = ["first", "second"].map(
       (id) =>
