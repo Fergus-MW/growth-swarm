@@ -1,3 +1,4 @@
+import { CrmHandoff } from "@/components/CrmHandoff";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -38,6 +39,7 @@ function cssVar(name: string) {
 
 function SwarmPage() {
   const { runId } = Route.useParams();
+  const { user } = Route.useRouteContext();
   const fetchRun = useServerFn(getRun);
   const fetchEvents = useServerFn(getRunEvents);
   const { data: runData } = useQuery({ queryKey: ["run-lite", runId], queryFn: () => fetchRun({ data: { id: runId } }), refetchInterval: 8000 });
@@ -231,6 +233,7 @@ function SwarmPage() {
           ))}
         </div>
       </header>
+      {run && <CrmHandoff runId={runId} userId={user.id} status={run.status} outcome={run.outcome} />}
       <div className="flex min-h-0 flex-1">
         <div className="relative flex-1">
           <canvas ref={canvasRef} className="h-full w-full" />

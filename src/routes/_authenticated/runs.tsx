@@ -1,3 +1,4 @@
+import { CrmHandoff } from "@/components/CrmHandoff";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -32,6 +33,7 @@ const OUTCOME_LABEL: Record<string, string> = {
 };
 
 function RunsPage() {
+  const { user } = Route.useRouteContext();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const fetchRuns = useServerFn(listRuns);
@@ -173,6 +175,7 @@ function RunsPage() {
                     )}
                   </div>
                 </div>
+                <CrmHandoff runId={run.id} userId={user.id} status={run.status} outcome={run.outcome} />
               </div>
             );
           })}

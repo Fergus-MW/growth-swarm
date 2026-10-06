@@ -1,3 +1,4 @@
+import { CrmHandoff } from "@/components/CrmHandoff";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -36,6 +37,7 @@ const OUTCOME_LABEL: Record<string, string> = {
 
 function LiveRunPage() {
   const { runId } = Route.useParams();
+  const { user } = Route.useRouteContext();
   const queryClient = useQueryClient();
   const fetchRun = useServerFn(getRun);
   const stop = useServerFn(stopRun);
@@ -178,7 +180,7 @@ function LiveRunPage() {
             Watch swarm
           </Link>
           <Link to="/leads" className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary">
-            Leads
+            CRM
           </Link>
           {live ? (
             <button
@@ -199,6 +201,7 @@ function LiveRunPage() {
           )}
         </div>
       </header>
+      <CrmHandoff runId={run.id} userId={user.id} status={run.status} outcome={run.outcome} />
 
       <div className="flex min-h-0 flex-1">
         {/* Trace ring (left column) */}
