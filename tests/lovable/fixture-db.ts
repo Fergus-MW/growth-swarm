@@ -120,7 +120,7 @@ export function createFixtureDatabase(seed: Partial<Record<Table, FixtureRow[]>>
       } else if (operation === "update") {
         for (const row of rows) Object.assign(row, structuredClone(update));
       }
-      for (const { column, ascending } of orders.toReversed())
+      for (const { column, ascending } of [...orders].reverse())
         rows.sort((a, b) => {
           const first = a[column];
           const second = b[column];
