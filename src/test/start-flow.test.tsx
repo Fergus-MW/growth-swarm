@@ -42,3 +42,19 @@ it("admits one run for two immediate submissions, then enters execution", async 
   );
   expect(calls.start).toHaveBeenCalledTimes(1);
 });
+
+it("retries a failed start using its admitted run instead of creating a second run", async () => {
+  calls.create.mockResolvedValue({ id: "saved-draft" });
+  calls.start
+    .mockRejectedValueOnce(new Error("Temporary start failure"))
+    .mockResolvedValueOnce({ ok: true, status: "running" });
+  const Page = Route.options.component!;
+  render(<Page />);
+  fireEvent.change(screen.getByLabelText("Task description"), { target: { value: "X" } });
+  fireEvent.click(screen.getByRole("button", { name: "Start" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Start" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "Start" }));
+  await waitFor(() => expect(calls.navigate).toHaveBeenCalled());
+  expect(calls.create).toHaveBeenCalledTimes(1);
+  expect(calls.start).toHaveBeenNthCalledWith(2, { data: { id: "saved-draft" } });
+});
