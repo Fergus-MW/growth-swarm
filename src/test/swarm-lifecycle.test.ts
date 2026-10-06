@@ -38,6 +38,7 @@ it("finalizes a stopping run without dispatching research and preserves its chec
           return query;
         },
         single: async () => ({ data: state, error: null }),
+        maybeSingle: async () => ({ data: state, error: null }),
         then(resolve: (value: { data: unknown[]; count: number; error: null }) => unknown) {
           return Promise.resolve({ data: [], count: 0, error: null }).then(resolve);
         },

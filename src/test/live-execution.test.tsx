@@ -15,7 +15,12 @@ const boundary = vi.hoisted(() => ({
   snapshot: vi.fn(),
   events: vi.fn(),
   archive: vi.fn(),
+  transfer: vi.fn(),
   changed: new Map<string, (event: { new: object }) => void>(),
+}));
+vi.mock("@/lib/crm-transfer.functions", () => ({
+  getCrmTransfer: boundary.transfer,
+  retryCrmTransfer: vi.fn(),
 }));
 vi.mock("@/lib/runs.functions", () => ({
   getRun: boundary.snapshot,
@@ -68,6 +73,15 @@ vi.mock("@/integrations/supabase/client", () => ({
 
 beforeEach(() => {
   boundary.changed.clear();
+  boundary.transfer.mockResolvedValue({
+    status: "ready",
+    company_count: 0,
+    person_count: 0,
+    source_count: 0,
+    created_count: 0,
+    linked_count: 0,
+    updated_at: "2026-10-06T12:00:00Z",
+  });
   boundary.snapshot.mockReset();
   boundary.events.mockReset();
   boundary.archive.mockReset();
@@ -107,7 +121,12 @@ async function openRun(swarmSize = 100, nodes: object[] = []) {
       </QueryClientProvider>
     ),
   });
-  const auth = createRoute({ getParentRoute: () => root, id: "_authenticated", component: Outlet });
+  const auth = createRoute({
+    getParentRoute: () => root,
+    id: "_authenticated",
+    beforeLoad: () => ({ user: { id: "fixture-user" } }),
+    component: Outlet,
+  });
   const route = createRoute({
     getParentRoute: () => auth,
     path: "/runs/$runId",

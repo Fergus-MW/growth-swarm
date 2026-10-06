@@ -14,4 +14,4 @@ Run the fixture itself's contract checks:
 npx tsx --test tests/lovable/fixture-db.test.ts
 ```
 
-For manual fixture inspection, run `npx vite --config tests/lovable/vite.config.ts` and open `http://127.0.0.1:4186/setup`. Query `?fixture=slow` delays the synthetic model for Stop checks; `?fixture=voter-error` fails synthetic evaluators. `/runs/fixture-archive?fixture=archive` seeds 125 saved events for Agent 100. These scenarios live only in memory in this test page.
+For manual fixture inspection, run `npx vite --config tests/lovable/vite.config.ts` and open `http://127.0.0.1:4186/setup`. Query `?fixture=slow` delays the synthetic model for Stop checks; `?fixture=voter-error` fails synthetic evaluators. `/runs/00000000-0000-4000-8000-000000000125?fixture=archive` seeds 125 saved events for Agent 100. These scenarios live only in memory in this test page.

@@ -18,7 +18,7 @@ test("real route admits one run on rapid Start and persists generated criteria",
     .getByRole("textbox", { name: "Task description" })
     .fill("Explain fictional volcano hazards using captured sources");
   await page.getByRole("button", { name: "Start", exact: true }).click({ clickCount: 2 });
-  await expect(page).toHaveURL(/\/runs\/fixture-runs-/);
+  await expect(page).toHaveURL(/\/runs\/00000000-0000-4000-8000-/);
   const rows = await page.evaluate(
     () =>
       (
@@ -51,7 +51,7 @@ test("keyboard threshold preserves seven percent and 100 panels on mobile", asyn
   await swarm.press("End");
   await expect(page.getByText("7 of 100 agents", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Start", exact: true }).click();
-  await expect(page).toHaveURL(/\/runs\/fixture-runs-/);
+  await expect(page).toHaveURL(/\/runs\/00000000-0000-4000-8000-/);
   const config = await page.evaluate(
     () =>
       (
@@ -198,7 +198,7 @@ test("disabled connector records honest gaps without invoking web search", async
 });
 
 test("agent 100 can browse an earliest saved action beyond its live buffer", async ({ page }) => {
-  await page.goto("/runs/fixture-archive?fixture=archive");
+  await page.goto("/runs/00000000-0000-4000-8000-000000000125?fixture=archive");
   const last = page.getByRole("article", { name: "Agent 100", exact: true });
   await expect(last.locator("summary", { hasText: "Trace history (100)" })).toBeVisible();
   await last.getByRole("button", { name: "Browse older saved history", exact: true }).click();

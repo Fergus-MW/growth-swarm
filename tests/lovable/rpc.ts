@@ -15,8 +15,8 @@ export function createServerFn(options: { method?: string } = {}) {
       return builder;
     },
     handler(fn: (options: { data: unknown; context: unknown }) => unknown) {
-      return async (options?: { data?: unknown }) => {
-        const data = validator(options?.data);
+      return async (request?: { data?: unknown }) => {
+        const data = validator(request?.data);
         if (
           fixtureControls.startFailures &&
           options.method === "POST" &&

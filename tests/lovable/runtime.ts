@@ -6,7 +6,7 @@ export const database = createFixtureDatabase(
     ? {
         runs: [
           fixtureRun({
-            id: "fixture-archive",
+            id: "00000000-0000-4000-8000-000000000125",
             status: "completed",
             outcome: "consensus",
             swarm_size: 100,
@@ -14,7 +14,7 @@ export const database = createFixtureDatabase(
         ],
         events: Array.from({ length: 125 }, (_, index) => ({
           id: index + 1,
-          run_id: "fixture-archive",
+          run_id: "00000000-0000-4000-8000-000000000125",
           agent_index: 99,
           kind: "task_done",
           created_at: new Date().toISOString(),
