@@ -1,20 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { createRunInput } from "@/lib/run-input";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-
-const createRunInput = z.object({
-  profile: z.enum(["gtm", "blank"]).default("gtm"),
-  objective: z.string().min(3),
-  pain: z.string().optional(),
-  universe: z.string().optional(),
-  exclusions: z.string().optional(),
-  completion_criteria: z.string().default(""),
-  swarm_size: z.number().int().min(5).max(100).default(20),
-  threshold: z.number().gt(0).lte(1).default(0.7),
-  time_limit_sec: z.number().int().min(60).max(3600).default(1800),
-  cost_cap: z.number().positive().max(100).default(5),
-  connectors: z.array(z.string()).default(["web_search"]),
-});
 
 export const createRun = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])

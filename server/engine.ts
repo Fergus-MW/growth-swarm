@@ -3,6 +3,7 @@ import type { Agent, EvidenceRef, GraphEdge, GraphNode, Invocation, Outcome, Run
 import { CapturedResponseError, FIXTURE_COMPANIES, getConnectors, hash, PartialResponseError, searchConnector, type SourceItem } from './connectors.js';
 import { evaluate, research, type EdgeDraft, type NodeDraft, type ResearchDraft } from './model.js';
 import { evaluateQuality, validateEdge, validateNode } from './validation.js';
+import { requiredAgreement } from '../shared/consensus.js';
 
 export interface EngineStore {
   getState(id: string): RunState;
@@ -19,7 +20,6 @@ export class LimitError extends Error { constructor(public outcome: Outcome, mes
 
 function trace(s: RunState, agentId: string, status: string, summary: string, taskId?: string, nodeId?: string) {
   s.traces.push({ id: id(), timestamp: now(), agentId, status, summary: summary.slice(0, 700), taskId, nodeId });
-  if (s.traces.length > 1000) s.traces.splice(0, s.traces.length - 1000);
 }
 function addTask(s: RunState, kind: TaskKind, payload: Record<string, unknown>, targetIds: string[] = [], reservedFor?: string): Task {
   const dedupeKey = hash(JSON.stringify({ kind, payload, targetIds: [...targetIds].sort(), assessment: s.run.assessmentVersion, connectors: [...s.run.config.connectorIds].sort(), window: s.run.config.signalWindowMonths }));
@@ -183,12 +183,12 @@ function reserve(s: RunState, cost: number, provider: string, task?: Task) {
   if (s.run.stopRequested || !['running','evaluating'].includes(s.run.outcome)) throw new Error('Run no longer accepts calls');
   const evaluationCalls=s.run.config.mode==='live'&&s.run.outcome!=='evaluating'?s.run.config.swarmSize:0;
   if (s.run.usage.calls+1+evaluationCalls > s.run.config.budget.maxCalls) throw new LimitError('budget_connector','Outbound call limit or reserved evaluation capacity reached');
-  const evaluationReserve=s.run.config.mode==='live'&&s.run.outcome!=='evaluating'?Number(process.env.GEMINI_MAX_CALL_USD)*s.run.config.swarmSize:0;
+  const evaluationReserve=s.run.config.mode==='live'&&s.run.outcome!=='evaluating'?Number(process.env.OPENAI_MAX_CALL_USD)*s.run.config.swarmSize:0;
   if (s.run.usage.spent+s.run.usage.reserved+cost+evaluationReserve > s.run.config.budget.money) throw new LimitError('budget_cost','Money reservation would consume the evaluation reserve or exceed the run cap');
-  if (provider !== 'gemini' && (s.run.usage.connectorCalls[provider] ?? 0) >= s.run.config.budget.connectorCaps[provider]) throw new LimitError('budget_connector',`Request cap reached for ${provider}`);
+  if (provider !== 'openai' && (s.run.usage.connectorCalls[provider] ?? 0) >= s.run.config.budget.connectorCaps[provider]) throw new LimitError('budget_connector',`Request cap reached for ${provider}`);
   if (task) { const current=assertClaim(s,task); if(current.calls >= 40) throw new LimitError('budget_connector','Task reached its 40-call bound'); current.calls++; }
   s.run.usage.reserved+=cost; s.run.usage.calls++;
-  if(provider!=='gemini') s.run.usage.connectorCalls[provider]=(s.run.usage.connectorCalls[provider]??0)+1;
+  if(provider!=='openai') s.run.usage.connectorCalls[provider]=(s.run.usage.connectorCalls[provider]??0)+1;
 }
 function settle(s:RunState,cost:number,inputTokens=0,outputTokens=0) {
   // Fixed conservative ceiling: no token-price guess and no assumed cancellation refunds.
@@ -219,7 +219,7 @@ export async function executeRun(store:EngineStore,runId:string,fence:number,sig
       for(const segment of s.discovery.segments)addTask(s,'discovery',{segment,pass:1});
       // Parent observations remain immutable in the parent; current objective assessments are researched again.
       for(const n of s.nodes.filter(n=>n.entityType==='company'&&n.originRunId!==s.run.id))addTask(s,'qualification',{target:n.title},[n.id]);
-      trace(s,'coordinator','started',s.run.config.mode==='demo'?'Started fictional demo. No real web or model calls will be made.':'Started Tavily + Gemini research under explicit call and cost caps.');
+      trace(s,'coordinator','started',s.run.config.mode==='demo'?'Started fictional demo. No real web or model calls will be made.':'Started Tavily + OpenAI research under explicit call and cost caps.');
     });
     store.checkpoint(runId);
     const runTask=async(task:Task)=>{
@@ -250,9 +250,9 @@ export async function executeRun(store:EngineStore,runId:string,fence:number,sig
         const captured=store.getState(runId);
         if(captured.run.config.mode==='demo')draft=fixtureDraft(captured,task,chunks);
         else{
-          const cost=Number(process.env.GEMINI_MAX_CALL_USD);
+          const cost=Number(process.env.OPENAI_MAX_CALL_USD);
           let inputReserve=0,outputReserve=0;
-          const result=await research(captured,task,chunks,AbortSignal.any([combined,AbortSignal.timeout(45_000)]),(input,output)=>{update(s=>{reserve(s,cost,'gemini',task);reserveTokens(s,input,output);},'reservation');inputReserve=input;outputReserve=output;});
+          const result=await research(captured,task,chunks,AbortSignal.any([combined,AbortSignal.timeout(45_000)]),(input,output)=>{update(s=>{reserve(s,cost,'openai',task);reserveTokens(s,input,output);},'reservation');inputReserve=input;outputReserve=output;});
           update(s=>{settle(s,cost,result.inputTokens,result.outputTokens);settleTokens(s,inputReserve,outputReserve);},'usage');draft=result.value;
         }
         combined.throwIfAborted();
@@ -282,13 +282,13 @@ export async function executeRun(store:EngineStore,runId:string,fence:number,sig
           if(!supportedBrief)rationale='The deterministic fictional corpus cannot independently judge this changed brief. Live research is required for arbitrary objectives.';
         }
         else if(frozen.run.quality?.passed){
-          const cost=Number(process.env.GEMINI_MAX_CALL_USD);
+          const cost=Number(process.env.OPENAI_MAX_CALL_USD);
           let inputReserve=0,outputReserve=0;
-          try{const result=await evaluate(frozen,a.id,AbortSignal.any([combined,AbortSignal.timeout(30_000)]),(input,output)=>{update(s=>{reserve(s,cost,'gemini');reserveTokens(s,input,output);},'reservation');inputReserve=input;outputReserve=output;});update(s=>{settle(s,cost,result.inputTokens,result.outputTokens);settleTokens(s,inputReserve,outputReserve);},'usage');yes=result.value.yes===true;rationale=String(result.value.rationale).slice(0,1200);}catch(e){rationale=e instanceof Error?e.message:'Evaluator unavailable';if(e instanceof LimitError)fatal=e;}
+          try{const result=await evaluate(frozen,a.id,AbortSignal.any([combined,AbortSignal.timeout(30_000)]),(input,output)=>{update(s=>{reserve(s,cost,'openai');reserveTokens(s,input,output);},'reservation');inputReserve=input;outputReserve=output;});update(s=>{settle(s,cost,result.inputTokens,result.outputTokens);settleTokens(s,inputReserve,outputReserve);},'usage');yes=result.value.yes===true;rationale=String(result.value.rationale).slice(0,1200);}catch(e){rationale=e instanceof Error?e.message:'Evaluator unavailable';if(e instanceof LimitError)fatal=e;}
         }
         return{agentId:a.id,epoch,revision,criteriaHash,yes,rationale,createdAt:now()};
       }));
-      const required=Math.ceil(frozen.run.config.threshold*frozen.run.config.swarmSize);
+      const required=requiredAgreement(frozen.run.config.swarmSize,frozen.run.config.threshold);
       const passed=Boolean(frozen.run.quality?.passed)&&votes.filter(v=>v.yes).length>=required;
       update(s=>{s.votes.push(...votes);s.run.outcome='running';for(const vote of votes){const a=s.agents.find(a=>a.id===vote.agentId)!;a.status='idle';a.summary=vote.rationale;if(!vote.yes){const gap=s.tasks.find(t=>t.status==='open'&&!t.reservedFor);if(gap){gap.reservedFor=a.id;Object.assign(vote,{gapTaskId:gap.id});}}}trace(s,'coordinator','vote',`${votes.filter(v=>v.yes).length}/${frozen.run.config.swarmSize} yes on revision ${revision}; ${required} required. ${passed?'Consensus reached.':'Criteria remain unmet.'}`);},'votes');
       lastEvaluation=Date.now();return passed;

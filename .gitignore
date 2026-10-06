@@ -30,3 +30,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local legacy test output and workspace data
+playwright-report/
+test-results/
+.data/
+.env
+.env.*
+!.env.example
