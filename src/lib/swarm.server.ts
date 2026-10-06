@@ -2,6 +2,7 @@ import { z } from "zod";
 import { callModelJson } from "./ai.server";
 import { webSearch, webSearchAvailable } from "./connectors.server";
 import { requiredAgreement } from "../../shared/consensus";
+import { explicitCriteria } from "../../shared/criteria";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Db = any;
@@ -246,6 +247,8 @@ async function captureSearch(
     query,
     status: "succeeded",
     results: chunks.length,
+    invocationId: invocation.id,
+    chunkIds: chunks.map((chunk) => chunk.id),
   });
   return { chunks, status: "succeeded" };
 }
@@ -1116,15 +1119,19 @@ async function evaluateEpoch(db: Db, run: RunRow): Promise<"consensus" | "contin
   for (let i = 0; i < roster; i += batch) {
     const slice = Array.from({ length: Math.min(batch, roster - i) }, (_, k) => i + k);
     const results = await Promise.allSettled(
-      slice.map((agentIdx) =>
-        callModelJson({
+      slice.map(async (agentIdx) => {
+        await emit(db, run.id, "agent_vote_started", agentIdx, {
+          epoch,
+          revision: run.graph_revision,
+        });
+        return callModelJson({
           instructions: `You are research agent ${agentIdx + 1} of ${roster}, independently evaluating whether the run's completion criteria are met against a fixed graph revision. You see statistics, not other agents' votes. Be strict: unmet measurable predicates mean no.`,
           input: voterInput,
           schema: voteSchema,
           schemaName: "vote",
           effort: "low",
-        }),
-      ),
+        });
+      }),
     );
     for (let k = 0; k < results.length; k++) {
       const r = results[k];
@@ -1139,6 +1146,18 @@ async function evaluateEpoch(db: Db, run: RunRow): Promise<"consensus" | "contin
           rationale: r.value.rationale,
           gap_task: r.value.gap_task,
         });
+        await emit(db, run.id, "agent_voted", slice[k]!, {
+          epoch,
+          revision: run.graph_revision,
+          decision: r.value.decision,
+          rationale: r.value.rationale,
+          gapTask: r.value.gap_task,
+        });
+      } else {
+        await emit(db, run.id, "agent_vote_error", slice[k]!, {
+          epoch,
+          revision: run.graph_revision,
+        });
       }
     }
     await charge(db, run, MODEL_CALL_COST * slice.length);
@@ -1150,7 +1169,8 @@ async function evaluateEpoch(db: Db, run: RunRow): Promise<"consensus" | "contin
   }
 
   const yes = votes.filter((v) => v.decision === "yes").length;
-  const gatesPass = stats.qualified > 0; // deterministic gate: at least one qualified company
+  const minimumCompanies = explicitCriteria(run.completion_criteria).minCompanies ?? 1;
+  const gatesPass = run.profile === "blank" || stats.qualified >= minimumCompanies;
   await emit(db, run.id, "epoch_closed", null, {
     epoch,
     yes,

@@ -120,7 +120,7 @@ export function createFixtureDatabase(seed: Partial<Record<Table, FixtureRow[]>>
       } else if (operation === "update") {
         for (const row of rows) Object.assign(row, structuredClone(update));
       }
-      for (const { column, ascending } of orders.toReversed())
+      for (const { column, ascending } of [...orders].reverse())
         rows.sort((a, b) => {
           const first = a[column];
           const second = b[column];
@@ -162,6 +162,10 @@ export function createFixtureDatabase(seed: Partial<Record<Table, FixtureRow[]>>
       },
       gt(column: string, value: number) {
         predicates.push((row) => Number(row[column]) > value);
+        return query;
+      },
+      lt(column: string, value: number) {
+        predicates.push((row) => Number(row[column]) < value);
         return query;
       },
       ilike(column: string, value: string) {
