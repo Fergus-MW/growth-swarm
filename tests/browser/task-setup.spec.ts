@@ -29,14 +29,14 @@ test('criteria generation failure preserves the task and exact explicit criteria
   const criteria = page.getByRole('textbox', { name: 'Completion criteria', exact: true });
   const description = 'Research '.repeat(2100);
   await task.fill(description);
-  await page.getByRole('button', { name: 'Launch research', exact: true }).click();
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Could not generate completion criteria');
   await expect(task).toHaveValue(description);
   await expect(criteria).toHaveValue('');
   const explicit = '  Compare the options.\nKeep unknowns visible.  ';
   await criteria.fill(explicit);
   const admitted = page.waitForResponse(response => response.url().endsWith('/api/runs') && response.request().method() === 'POST' && response.status() === 201);
-  await page.getByRole('button', { name: 'Launch research', exact: true }).click();
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
   const run = await (await admitted).json();
   expect(run.config.objective).toBe(description);
   expect(run.config.criteria.text).toBe(explicit);

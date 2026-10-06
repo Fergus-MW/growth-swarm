@@ -12,7 +12,7 @@ const labels: Record<Category,string> = { primary_entity: 'Primary entity', note
 const money = (n: number) => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:3}).format(n);
 const date = (value?: string | null) => value ? new Date(value).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : 'Not recorded';
 const age = (value?: string | null) => !value ? 'Not yet saved' : Date.now()-new Date(value).getTime()<60000 ? 'Just now' : `${Math.floor((Date.now()-new Date(value).getTime())/60000)}m ago`;
-const outcome = (value: string) => value.replaceAll('_',' ');
+const outcome = (value: string) => value==='consensus'?'Completed':value.replaceAll('_',' ');
 function Status({ value }: {value:string}) { return <span className={`status ${value}`}><span className="dot"/>{outcome(value)}</span>; }
 function CategoryMark({category}:{category:Category}) { return <i aria-hidden="true" className={`category-mark ${category}`}/>; }
 
@@ -29,6 +29,7 @@ export default function App() {
   const stream = useRef<AbortController|null>(null);
   const activeId = useRef<string|null>(null);
   const retryKey = useRef<string>('');
+  const starting = useRef(false);
   const sequence = useRef(0);
   const pendingState = useRef<RunState|null>(null);
   const refreshTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
@@ -60,10 +61,11 @@ export default function App() {
     finally{if(stream.current===controller){stream.current=null;setStreaming(false);}}
   };
   const start = async(config:RunConfig)=>{
-    if(stream.current){setError('Stop the current research execution before launching another run in this browser.');return;}setBusy('Validating sources and saving the initial checkpoint');setError('');
+    if(starting.current)return;
+    if(stream.current){setError('Stop the current research execution before launching another run in this browser.');return;}starting.current=true;setBusy('Validating sources and saving the initial checkpoint');setError('');
     const payload=JSON.stringify({config,parentId:parent?.id});
     if(!retryKey.current.startsWith(payload+'|'))retryKey.current=payload+'|'+crypto.randomUUID();
-    try{const run=await api<Run>('/runs',{method:'POST',headers:{'Idempotency-Key':retryKey.current.slice(payload.length+1)},body:payload});activeId.current=run.id;await snapshot(run.id);setView('run');setParent(null);await reloadRuns();setBusy('');void execute(run);}catch(e){setError((e as Error).message);setBusy('');}
+    try{const run=await api<Run>('/runs',{method:'POST',headers:{'Idempotency-Key':retryKey.current.slice(payload.length+1)},body:payload});activeId.current=run.id;await snapshot(run.id);setView('run');setParent(null);await reloadRuns();setBusy('');retryKey.current='';void execute(run);}catch(e){setError((e as Error).message);setBusy('');}finally{starting.current=false;}
   };
   const stop = async()=>{if(!state)return;setBusy('Saving stop request');try{await api(`/runs/${state.run.id}/stop`,{method:'POST',body:'{}'});setNotice('Stop requested. In-flight work is being finalized and saved.');await snapshot(state.run.id);}catch(e){setError((e as Error).message);}finally{setBusy('');}};
   const navigate=(next:'setup'|'runs'|'about')=>{setView(next);setError('');if(next==='setup')setParent(null);if(next==='runs')void reloadRuns();};
@@ -100,7 +102,7 @@ function Setup({bootstrap,parent,onStart,busy,error,onCancel}:{bootstrap:Bootstr
         <div className="field"><label htmlFor="objective">Task description</label><textarea id="objective" required maxLength={20000} rows={7} value={config.objective} onChange={e=>set('objective',e.target.value)} placeholder="Describe the question you want the swarm to research…"/></div>
         <div className="field"><label htmlFor="criteria">Completion criteria <span className="optional" aria-hidden="true">Optional</span></label><textarea id="criteria" aria-label="Completion criteria" aria-describedby="criteria-help" maxLength={20000} rows={3} value={config.criteria.text} onChange={e=>criteria('text',e.target.value)} placeholder="Describe what a complete result should include…"/><span id="criteria-help" className="field-help">Leave blank to generate completion criteria from your task before research starts.</span></div>
         <CompletionThreshold threshold={config.threshold} swarmSize={config.swarmSize} onChange={value=>set('threshold',value)} disabled={!!busy}/>
-        <button type="submit" className="primary" disabled={!!busy||!config.objective.trim()}>{busy?<Loader2 className="spin" size={16}/>:<Play size={14} fill="currentColor"/>}{busy?'Preparing research…':parent?'Start child run':'Launch research'}{!busy&&<ArrowRight size={16}/>}</button>
+        <button type="submit" className="primary" disabled={!!busy||!config.objective.trim()}>{busy?<Loader2 className="spin" size={16}/>:<Play size={14} fill="currentColor"/>}{busy?'Preparing research…':'Start'}{!busy&&<ArrowRight size={16}/>}</button>
         <p className="task-run-summary">{config.mode==='demo'?'Synthetic demonstration. Fixture evidence may not answer your task.':'Live research. Selected sources and the model can incur charges.'} {selected.length} sources · {config.swarmSize} agents · {money(config.budget.money)} maximum · {config.budget.wallClockMinutes} minutes</p>
         {busy&&<p role="status" className="field-help">{busy}</p>}
       </div>
