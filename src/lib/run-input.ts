@@ -5,12 +5,9 @@ export const createRunInput = z
     profile: z.enum(["gtm", "blank"]).default("blank"),
     objective: z
       .string()
-      .min(3)
+      .min(1)
       .max(20000)
-      .refine(
-        (text) => text.trim().length >= 3,
-        "Enter a task description of at least three characters.",
-      ),
+      .refine((text) => text.trim().length > 0, "Enter a task description."),
     pain: z.string().optional(),
     universe: z.string().optional(),
     exclusions: z.string().optional(),

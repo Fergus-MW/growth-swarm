@@ -25,4 +25,8 @@ describe("run admission", () => {
     expect(retried.completion_criteria).toBe(explicit);
     expect(retried.objective).toBe(task);
   });
+  it("admits a nonblank task without adding a minimum description length", () => {
+    expect(createRunInput.safeParse({ objective: "X" }).success).toBe(true);
+    expect(createRunInput.safeParse({ objective: "   " }).success).toBe(false);
+  });
 });
