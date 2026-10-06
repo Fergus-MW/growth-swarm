@@ -1,89 +1,202 @@
-# Welcome to your Lovable project
+<div align="center">
 
-This project was built with [Lovable](https://lovable.dev).
+<img src="docs/media/banner.svg" alt="Growth Swarm" width="100%">
 
-## Build with Lovable
+<br>
 
-Open your project in the [Lovable editor](https://lovable.dev) and keep building.
+[![TanStack Start](https://img.shields.io/badge/TanStack%20Start-React%2019-ff4154?logo=react&logoColor=white)](src/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)](tsconfig.json)
+[![Supabase](https://img.shields.io/badge/Supabase-Postgres%20%2B%20RLS-3ecf8e?logo=supabase&logoColor=white)](supabase/migrations/)
+[![Tavily](https://img.shields.io/badge/search-Tavily-5b5bd6)](src/lib/connectors.server.ts)
+[![Graph](https://img.shields.io/badge/graph-Cosmos%20%2B%20Sigma-22d3c5)](src/components/GraphCanvas.tsx)
+[![Evidence first](https://img.shields.io/badge/every%20finding-cited-7fa86a)](#evidence-first-by-design)
 
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: connect the project to GitHub and every change made in Lovable is committed straight to your repository.
-- **Full ownership**: this code is yours. Push to your repository and your changes sync back into Lovable, ready for your next prompt.
+**Give it a brief. A swarm of agents researches it, builds one shared, cited graph, votes on whether the job is done, and hands the result to your CRM.**
 
-## Development
+[**▶ Watch the demo**](#-see-it-run) · [**Run the demo locally**](#run-the-demo-in-30-seconds) · [**How it works**](#how-it-works) · [**Product spec**](PRD.md)
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+</div>
+
+---
+
+Most "AI research" tools return a confident paragraph. Growth Swarm returns a graph you can check.
+You describe what you want found and what a finished answer looks like. Between 5 and 100 agents
+split the brief into tasks, search the web, qualify what they find against your criteria, record
+dated buying signals, and identify the people who own the problem. Every claim links to the exact
+passage it rests on. The run ends only when your completion criteria pass and enough agents agree
+on the same graph revision. A budget or time limit can also end it early.
+
+It ships with a **go-to-market profile**: describe a pain and a market, and you get qualified
+companies, demand signals, and named contacts, transferred straight into a built-in CRM. A **blank
+brief** profile handles any other research question.
+
+> The interface is currently branded **Auto Research**; Growth Swarm is the repository and project name.
+
+## ▶ See it run
+
+<div align="center">
+
+<a href="docs/media/demo.mp4"><img src="docs/media/demo.gif" alt="Demo: a go-to-market brief, the swarm building its graph live, the source ledger, the swarm replay and the CRM" width="100%"></a>
+
+<sub><b><a href="docs/media/demo.mp4">Full-quality MP4</a></b> · brief → live swarm → source ledger → swarm replay → CRM, recorded with <code>npm run demo</code>. Every company, person and source in this recording is <b>fictional</b>; the corpus lives in <a href="tests/lovable/gtm-demo.ts"><code>tests/lovable/gtm-demo.ts</code></a>.</sub>
+
+</div>
+
+<table>
+<tr>
+<td width="50%"><img src="docs/media/graph.png" alt="Completed run: shared research graph with agent activity"><br><sub><b>One shared graph.</b> Companies, research notes and source passages, joined by typed evidence edges. Agent activity on both sides.</sub></td>
+<td width="50%"><img src="docs/media/swarm.png" alt="Swarm replay: agents moving between activity zones"><br><sub><b>Swarm replay.</b> Watch agents move between framing, discovery, qualification, signals, people and gap-filling, at 1× to 40×.</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/media/ledger.png" alt="Source ledger listing every connector call"><br><sub><b>Source ledger.</b> Every search, including empty and failed calls, with captured chunks and cost.</sub></td>
+<td width="50%"><img src="docs/media/crm.png" alt="CRM populated from a completed run"><br><sub><b>Straight into the CRM.</b> Qualified and unqualified companies, linked people, and the run that found them.</sub></td>
+</tr>
+</table>
+
+## Run the demo in 30 seconds
+
+The demo runs the real setup screen, run engine, graph, swarm view and CRM in your browser. The
+model, web search, auth and database are replaced with a deterministic in-memory fixture, so it
+needs no accounts or keys and makes no paid calls.
 
 ```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
+npm ci
+npm run demo
+```
+
+Open **http://127.0.0.1:4186/setup?fixture=gtm-demo**, choose **Advanced settings → Go-to-market
+profile**, and start a run. You can type any brief; the fixture always researches its eight
+fictional UK and Irish industrial companies, seven of which match the pain. In about 25 seconds
+the swarm reaches consensus and the result lands in the CRM. Everything lives in memory and
+disappears on reload.
+
+## How it works
+
+```mermaid
+flowchart LR
+    A[Brief + completion criteria] --> B[Decompose into tasks]
+    B --> C[Discover companies]
+    C --> D[Qualify fit<br/>with cited evidence]
+    D --> E[Dated buying signals]
+    D --> F[CEO + person<br/>closest to the pain]
+    E & F --> G{Deterministic gates<br/>+ swarm vote}
+    G -- gaps --> H[Gap-filling tasks] --> C
+    G -- consensus --> I[CRM handoff]
+```
+
+1. **Define the brief.** A task description and, optionally, completion criteria. Leave the
+   criteria blank and they are generated from the task before the run starts.
+2. **Pick a profile and sources.** Go-to-market (pain statement, universe, exclusions) or a blank
+   brief. Sources are read-only; web search via Tavily is the first connector.
+3. **Set the guardrails.** Swarm size (5–100), consensus threshold, time limit and cost cap.
+   Guardrails are enforced by the engine, not suggested to the model.
+4. **Watch it work.** The graph grows live while agent panels stream traces, actions and decision
+   explanations. Stop at any time; partial results stay inspectable.
+5. **Completion is earned.** Deterministic checks (company counts, dated signals, contacts,
+   evidence integrity) must pass *and* enough of the configured roster must vote yes on the same
+   graph revision. Agents that vote no are assigned the open gaps.
+6. **Use the result.** Explore the graph and source ledger, export it, continue as a child run
+   with a new brief (the parent is never modified), or open the transferred records in the CRM.
+
+### Evidence first, by design
+
+| Graph layer | What it holds |
+|---|---|
+| **Primary entities** | Companies and people, with typed fields such as website, location, size, role |
+| **Research notes** | Qualification verdicts, demand signals, claims and open questions, each with a confidence |
+| **Source chunks** | The exact passages returned by a connector, stored before any model sees them |
+
+Edges are typed: *supports*, *contradicts* or *qualifies* for evidence, and separate relationships
+for retrieved context, employment and semantic links. A model can propose findings, but it cannot
+create source chunks or raise run limits. Unknowns stay unknown instead of being filled in.
+
+## Two ways to run it
+
+| | **Platform app** (`src/`) | **Standalone local app** (`server/`, `web/`) |
+|---|---|---|
+| Stack | TanStack Start + React, Supabase (auth, Postgres, RLS) | Node + React, embedded SQLite (`node:sqlite`) |
+| Model | Lovable AI Gateway (`LOVABLE_API_KEY`) | OpenAI structured output (`OPENAI_API_KEY`) |
+| Search | Tavily (`TAVILY_API_KEY`) | Tavily (`TAVILY_API_KEY`) |
+| Extras | Swarm replay, CRM with workflow stages, notes and edit history | Cosmos live graph + Sigma explorer, Markdown vault / HTML report export, checkpoint recovery |
+| Fictional mode | `npm run demo` (in-browser fixture, shown above) | Built-in *Demonstration* mode |
+
+### Platform app
+
+```sh
+npm ci
 npm run dev
 ```
 
-## Built with
+It expects a Supabase project with the migrations in [`supabase/migrations`](supabase/migrations)
+applied, plus `LOVABLE_API_KEY` and `TAVILY_API_KEY` set server-side. Without a Tavily key, web
+search reports itself unavailable instead of failing silently.
 
-- TanStack Start
-- TypeScript
-- React
-- Tailwind CSS
+### Standalone local app
 
-# Standalone research app
-
-A standalone local research swarm implementing the interactive workflow in [PRD.md](PRD.md), scoped to **Tavily web search only**. React interface, Cosmos live graph, Sigma exploration, OpenAI structured research, and a local SQLite control and research store. No platform account, remote database, or cloud deployment is needed.
-
-## Run locally
-
-Use Node.js 24 LTS or newer (the embedded `node:sqlite` API is required).
+Requires Node.js 24 or newer.
 
 ```sh
-npm install
-npm run dev:legacy
+npm ci
+npm run dev:legacy          # web on http://127.0.0.1:5173, API on 127.0.0.1:3001
 ```
 
-Open **http://127.0.0.1:5173**. The API binds to loopback on port 3001. If port 5173 is occupied, run `WEB_PORT=5174 npm run dev:legacy` and open that port. The default demo mode runs a clearly labeled fictional corpus through the same scheduler, capture, writer, gates, checkpoint, and export paths, without external calls. Demo results are not real leads. The default 50-company criteria intentionally remain unmet by the small fixture; the application does not lower them to manufacture consensus.
+With no keys it runs in **Demonstration** mode: a labelled fictional corpus that goes through the
+same scheduler, capture, gates, checkpoints and exports. For live research, copy `.env.example` to
+`.env` and set:
 
-For live research, copy `.env.example` to `.env`, set `TAVILY_API_KEY`, `OPENAI_API_KEY`, an available `OPENAI_MODEL`, and explicit conservative per-call cost ceilings. Restart the API and select **Live research**. The default model (`gpt-4.1-mini`) is checked against the OpenAI models endpoint before admission; an unavailable model is rejected, never silently substituted. No live searches or model generations are made during tests. Search-only scope means passages are Tavily snippets, not fetched full pages.
+```dotenv
+TAVILY_API_KEY=...
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-4.1-mini      # checked against the models endpoint; never silently substituted
+TAVILY_MAX_CALL_USD=0.01       # conservative per-call ceilings used for budget accounting
+OPENAI_MAX_CALL_USD=0.05
+```
+
+Restart the API and choose **Research mode → Live research** under Advanced settings. Spend is
+accounted at your configured per-call ceilings, not taken from provider invoices, and unsettled
+calls stay reserved. Start with a small swarm and a low cost cap. Only one live run executes at a
+time. State is stored in `.data/` (or `DATA_DIR`) and is git-ignored. This is a single-user
+development server bound to loopback, so don't expose it publicly.
 
 ```sh
-npm run build:legacy
-npm run start:legacy
+npm run build:legacy && npm run start:legacy   # built app on http://127.0.0.1:3001
 ```
 
-The built application is served at **http://127.0.0.1:3001**. Local state stays in `.data/` (or `DATA_DIR`) and is ignored by Git. A local browser session, loopback Host checks, and Origin checks protect the development API. This is a single-user development service; do not expose it publicly.
+## Project layout
 
-## Workflow
+```
+src/routes/_authenticated/   setup, runs, live run, swarm replay, CRM (leads) screens
+src/lib/swarm.server.ts      task decomposition, executors, gates and consensus evaluation
+src/lib/crm-*.ts             CRM transfer, list, detail and workflow
+src/components/              graph canvas, agent activity panels, CRM handoff and editor
+supabase/migrations/         schema, RLS policies and CRM transfer functions
+server/                      standalone engine, SQLite store, OpenAI + Tavily, exports
+web/                         standalone React UI
+shared/                      types and criteria shared by the standalone app
+tests/lovable/               in-browser fixture harness, including the gtm-demo scenario
+```
 
-1. Review the objective, universe, exclusions, measurable criteria, roster, consensus denominator, and explicit time, money, request, and storage limits.
-2. Start a demo or live run. Execution belongs to the browser's streamed request. Inspect the three node categories, agent activity, exact captured passages, source ledger, deterministic gates, and votes.
-3. Stop manually or let criteria, limits, or lack of progress end the run. Closing the stream cancels dispatch. Reopen the saved run to inspect its partial result.
-4. Continue a terminal run as a child with new inputs. Parent observations remain attributed, objective-dependent assessments are recomputed, and the parent checkpoint is preserved.
-5. Download JSON research interchange/restorable state, a Markdown vault ZIP with source artifacts, or a private self-contained HTML report. Nothing is published or sent to prospects.
-
-## Implementation
-
-- `shared/types.ts`: versioned graph, schema, task, evidence, run, and stream contracts.
-- `server/store.ts`: transactional SQLite state and events, idempotent admission, execution fencing, lossless capture journal, checksummed immutable checkpoint generations, recovery, and child creation.
-- `server/engine.ts`: bounded fair task queues, atomic claims and leases, independent async agents, source capture before model input, validated atomic result commits, fixed-revision evaluation, and configured-roster quorum.
-- `server/model.ts`: OpenAI chat completions with strict JSON schema for research and independent evaluation. Models propose authored changes; they cannot create source chunks or change run limits.
-- `server/connectors.ts`: Tavily search and an isolated fictional fixture. Source URLs are not fetched by the server. Credentials never enter model prompts or exports.
-- `server/validation.ts`: typed fields, exact evidence offsets and hashes, semantic endpoint integrity, identity checks, source accounting, and go-to-market criteria.
-- `server/export.ts`: sanitized, stable vault filenames, provenance, source ledger, topology and details, quality diagnostics, and complete original captured text.
-- `web/`: setup, run history, live and exploration graphs, responsive agent activity, accessible tables, evidence details, and export controls.
-
-Local SQLite commits use `BEGIN IMMEDIATE`; a short synchronous transaction covers claims and accepted result state. External calls happen outside that transaction. A checkpoint writes and syncs immutable state and manifest before atomically publishing `current.json`. Source response artifacts and descriptors are synced before graph registration or model use. An interrupted execution is fenced on restart and can only continue under a new child run.
-
-One live run may execute at a time, preventing simultaneous runs from independently spending the same local provider allowance. Money is accounted at configured conservative per-call ceilings, including evaluations; these values are **not measured provider bills**. Unknown or cancelled usage stays reserved. Exact provider invoice reconciliation and distributed shared-account quotas are outside the local backend.
-
-## Verification and release scope
+## Verification
 
 ```sh
-npm run test:legacy
-npm run typecheck:legacy
-npm run build:legacy
-npm audit
+npm run lint && npm run typecheck && npm run test          # platform app
+npx tsx --test tests/lovable/fixture-db.test.ts             # fixture contract
+npx playwright test --config playwright.lovable.config.ts   # platform UI in Chromium
+npm run test:legacy && npm run typecheck:legacy             # standalone engine
+npm run test:e2e:legacy                                     # standalone UI in Chromium
 ```
 
-Tests exercise evidence tampering, typed fields, same-name identity, source completeness, dated signals, contact requirements, independent-origin qualification, lease fencing, fixed-roster quorum, budget enforcement, stop/disconnect, durable recovery, idempotency, immutable continuation, and safe exports. Browser integration tests can be run with `npm run test:e2e:legacy` after installing Chromium (`npx playwright install chromium`).
+Browser suites need Chromium (`npx playwright install chromium`). No test makes live model or
+search calls.
 
-This repository provides a runnable local implementation, not the PRD's cloud release certification. Real provider structured output, live research quality and prices, 20/100-agent paid runs, Linux/cloud cold-start measurements, and continuous rendering at thousands of nodes require credentials and dedicated benchmarks. The PRD's platform tenant catalogues, ACLs, arbitrary connector types, cloud storage, canonical entity promotion, and scale-to-zero deployment are excluded by the standalone Tavily-only scope. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for verification status and remaining limits.
+## Scope and limits
+
+- Fixture and demonstration output is synthetic. It shows the workflow and is never real market
+  research.
+- Search uses Tavily snippets. Full pages are not fetched.
+- The standalone app is a local, single-user implementation. Cloud release certification,
+  multi-tenant connectors and large paid runs (20–100 agents) still need dedicated benchmarks.
+  See [IMPLEMENTATION.md](IMPLEMENTATION.md).
+- Growth Swarm only researches. It sends no outreach and publishes nothing.
+
+<sub>Product requirements: [PRD.md](PRD.md) · Implementation status: [IMPLEMENTATION.md](IMPLEMENTATION.md) · Agent notes: [AGENTS.md](AGENTS.md)</sub>

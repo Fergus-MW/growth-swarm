@@ -1,5 +1,8 @@
+import { scenario } from "./runtime";
+import { gtmDemoSearch } from "./gtm-demo";
 export const webSearchAvailable = () => true;
-export async function webSearch() {
+export async function webSearch(query = "") {
+  if (scenario === "gtm-demo") return gtmDemoSearch(query);
   return {
     ok: true,
     items: [

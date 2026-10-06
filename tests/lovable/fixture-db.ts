@@ -21,6 +21,7 @@ const tableNames = [
   "crm_record_sources",
   "crm_transfers",
   "crm_record_working_state",
+  "crm_record_working_history",
 ] as const;
 type Table = (typeof tableNames)[number];
 

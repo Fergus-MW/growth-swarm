@@ -1,4 +1,5 @@
 import { fixtureControls, scenario } from "./runtime";
+import { gtmDemoModel } from "./gtm-demo";
 export class ModelError extends Error {
   constructor(
     public status: number,
@@ -9,6 +10,7 @@ export class ModelError extends Error {
 }
 export async function callModelJson(options: { schemaName: string; input: string }) {
   fixtureControls.modelCalls++;
+  if (scenario === "gtm-demo") return gtmDemoModel(options.schemaName, options.input);
   if (scenario === "model-error" || (scenario === "voter-error" && options.schemaName === "vote"))
     throw new ModelError(403, "Synthetic model refusal");
   if (scenario === "slow") await new Promise((resolve) => setTimeout(resolve, 1500));

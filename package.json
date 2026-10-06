@@ -18,7 +18,8 @@
     "test:legacy": "tsx --test tests/*.test.ts",
     "typecheck:legacy": "tsc --noEmit -p tsconfig.legacy.json",
     "build:legacy": "npm run typecheck:legacy && vite build --config vite.legacy.config.ts",
-    "test:e2e:legacy": "playwright test --config playwright.config.ts"
+    "test:e2e:legacy": "playwright test --config playwright.config.ts",
+    "demo": "vite --config tests/lovable/vite.config.ts"
   },
   "overrides": {
     "rolldown": "1.2.1",
