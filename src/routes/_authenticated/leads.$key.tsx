@@ -1,5 +1,6 @@
+import { CrmRecordEditor } from "@/components/CrmRecordEditor";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { AppHeader } from "@/components/AppHeader";
 import { getCrmRecord } from "@/lib/crm-detail.functions";
@@ -25,6 +26,7 @@ function valueText(value: unknown): string {
 function CrmRecordPage() {
   const { key } = Route.useParams();
   const { user } = Route.useRouteContext();
+  const queryClient = useQueryClient();
   const readRecord = useServerFn(getCrmRecord);
   const query = useQuery({
     queryKey: ["crm", "record", user.id, key],
@@ -144,6 +146,20 @@ function CrmRecordPage() {
                 </Section>
               </div>
               <aside className="space-y-6">
+                {(detail.record.entity_type === "company" ||
+                  detail.record.entity_type === "person") && (
+                  <CrmRecordEditor
+                    recordId={detail.record.id}
+                    entityType={detail.record.entity_type}
+                    researchFields={{
+                      ...objectFields(detail.record.fields),
+                      name: detail.record.title,
+                    }}
+                    onSaved={() => {
+                      void queryClient.invalidateQueries({ queryKey: ["crm"] });
+                    }}
+                  />
+                )}
                 <Section title="Related companies and people">
                   {!detail.links.some(({ node }) => node?.category === "primary_entity") && (
                     <p className="text-sm text-muted-foreground">
