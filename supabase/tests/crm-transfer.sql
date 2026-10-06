@@ -102,6 +102,20 @@ select pg_temp.assert_true(not exists(select 1 from public.crm_record_sources wh
 reset role;
 
 select pg_temp.assert_true((select status='failed' and failed_count=2 from public.crm_transfers where run_id='15000000-0000-0000-0000-000000000002'),'revocation marks linked delivery incomplete');
+-- A failed repair rolls back removal of inaccessible mappings. Counters must
+-- still exclude those rows, rather than reporting all entities delivered.
+savepoint failed_revocation_repair;
+create function pg_temp.fail_revocation_repair() returns trigger language plpgsql as $$
+begin if new.run_id='15000000-0000-0000-0000-000000000002' then raise exception 'Injected repair failure'; end if; return new; end $$;
+create trigger inject_repair_failure before insert on public.crm_record_sources for each row execute function pg_temp.fail_revocation_repair();
+set local role authenticated;
+set local request.jwt.claim.sub = '15000000-0000-0000-0000-000000000099';
+select public.retry_crm_transfer('15000000-0000-0000-0000-000000000002');
+select pg_temp.assert_true((select status='failed' and source_count=3 and created_count=1 and linked_count=0 and failed_count=2 from public.crm_transfers where run_id='15000000-0000-0000-0000-000000000002'),'failed repair counts only accessible mappings after rollback');
+select pg_temp.assert_true((select count(*)=1 from public.crm_record_sources where run_id='15000000-0000-0000-0000-000000000002'),'failed repair leaves revoked mappings inaccessible');
+reset role;
+rollback to savepoint failed_revocation_repair;
+
 -- Test revocation recovery separately, then roll back to exercise deletion too.
 savepoint revoked_retry;
 set local role authenticated;

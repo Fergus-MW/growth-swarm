@@ -176,10 +176,17 @@ begin
   exception when others then
     update public.crm_transfers set status = 'failed', source_count = source_total,
       created_count = (select count(distinct s.crm_record_id) from public.crm_record_sources s
-        join public.crm_records c on c.id=s.crm_record_id where s.run_id=r.id and c.origin_run_id=r.id),
+        join public.crm_records c on c.id=s.crm_record_id
+        join public.runs origin on origin.id=c.origin_run_id and origin.user_id=r.user_id
+        where s.run_id=r.id and c.origin_run_id=r.id and c.user_id=r.user_id and s.user_id=r.user_id),
       linked_count = (select count(*) - count(distinct c.id) filter (where c.origin_run_id=r.id)
-        from public.crm_record_sources s join public.crm_records c on c.id=s.crm_record_id where s.run_id=r.id),
-      failed_count = source_total - (select count(*) from public.crm_record_sources where run_id=r.id),
+        from public.crm_record_sources s join public.crm_records c on c.id=s.crm_record_id
+        join public.runs origin on origin.id=c.origin_run_id and origin.user_id=r.user_id
+        where s.run_id=r.id and c.user_id=r.user_id and s.user_id=r.user_id),
+      failed_count = source_total - (select count(*) from public.crm_record_sources s
+        join public.crm_records c on c.id=s.crm_record_id
+        join public.runs origin on origin.id=c.origin_run_id and origin.user_id=r.user_id
+        where s.run_id=r.id and c.user_id=r.user_id and s.user_id=r.user_id),
       error = 'CRM transfer failed; retry the transfer. Research is preserved.', updated_at = now() where run_id = r.id;
     raise warning 'CRM transfer for run % failed [%]: %', r.id, sqlstate, sqlerrm;
   end;
