@@ -57,3 +57,20 @@ test('an oversized task reports generation failure and can be retried with exact
     assert.equal(run.config.objective, config.objective);
   } finally { await app.close(); }
 });
+
+test('generated GTM criteria preserve the advanced gates chosen before admission', async () => {
+  const app = await setup();
+  try {
+    const config: RunConfig = { ...app.config, profile: 'gtm', objective: 'Find companies with manual invoice reconciliation.', criteria: { text: '', minCompanies: 7, signalPercent: 60, independentSources: 3, saturationAttempts: 12, requireContacts: true } };
+    const response = await app.call('/api/runs', { method: 'POST', headers: { 'Idempotency-Key': 'gtm-generated-controls' }, body: JSON.stringify({ config }) });
+    assert.equal(response.status, 201);
+    const run = await response.json() as Run;
+    const { text, ...gates } = run.config.criteria;
+    assert.deepEqual(gates, { minCompanies: 7, signalPercent: 60, independentSources: 3, saturationAttempts: 12, requireContacts: true });
+    assert.match(text, /7 qualified companies/);
+    assert.match(text, /60%/);
+    assert.match(text, /3 independent source origins/);
+    assert.match(text, /12 discovery attempts/);
+    assert.match(text, /founder or CEO and another named relevant contact/);
+  } finally { await app.close(); }
+});
