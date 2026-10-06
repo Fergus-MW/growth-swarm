@@ -253,7 +253,7 @@ function LiveRunPage() {
           </div>
 
           {tab === "graph" ? (
-            <GraphCanvas nodes={nodes} edges={edges} selectedId={selectedId} onSelect={setSelectedId} showChunks={showChunks} />
+            <GraphCanvas nodes={nodes} edges={edges} selectedId={selectedId} onSelect={setSelectedId} showChunks={showChunks} running={live} />
           ) : (
             <SourceLedger invocations={data?.invocations ?? []} nodes={data?.nodes ?? []} onSelect={(id) => { setSelectedId(id); setTab("graph"); }} />
           )}
