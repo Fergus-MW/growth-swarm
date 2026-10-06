@@ -1,0 +1,130 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Auto Research design system — "observatory at night".
+ * Deep ink surfaces, phosphor-teal signal color, amber for captured source
+ * material, rose for contradictions. Mono type for data, grotesk for prose.
+ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-entity: var(--entity);
+  --color-note: var(--note);
+  --color-chunk: var(--chunk);
+  --color-contradict: var(--contradict);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+:root {
+  --radius: 0.5rem;
+  --background: oklch(0.145 0.02 255);
+  --foreground: oklch(0.92 0.01 220);
+  --card: oklch(0.185 0.022 255);
+  --card-foreground: oklch(0.92 0.01 220);
+  --popover: oklch(0.2 0.024 255);
+  --popover-foreground: oklch(0.92 0.01 220);
+  --primary: oklch(0.82 0.14 185);
+  --primary-foreground: oklch(0.16 0.03 240);
+  --secondary: oklch(0.24 0.028 255);
+  --secondary-foreground: oklch(0.9 0.02 200);
+  --muted: oklch(0.22 0.024 255);
+  --muted-foreground: oklch(0.62 0.02 230);
+  --accent: oklch(0.28 0.05 200);
+  --accent-foreground: oklch(0.92 0.06 190);
+  --destructive: oklch(0.62 0.2 25);
+  --destructive-foreground: oklch(0.95 0.01 20);
+  --border: oklch(0.28 0.025 255);
+  --input: oklch(0.3 0.028 255);
+  --ring: oklch(0.82 0.14 185);
+  /* graph categories: entity = teal diamond, note = violet circle, chunk = amber square */
+  --entity: oklch(0.82 0.14 185);
+  --note: oklch(0.72 0.15 305);
+  --chunk: oklch(0.8 0.15 85);
+  --contradict: oklch(0.68 0.22 25);
+  --chart-1: oklch(0.82 0.14 185);
+  --chart-2: oklch(0.72 0.15 305);
+  --chart-3: oklch(0.8 0.15 85);
+  --chart-4: oklch(0.68 0.2 25);
+  --chart-5: oklch(0.7 0.12 150);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-display);
+  }
+
+  code,
+  pre,
+  .font-data {
+    font-family: var(--font-mono);
+  }
+}
+
+@layer utilities {
+  .surface-grid {
+    background-image:
+      linear-gradient(oklch(0.22 0.02 255 / 0.35) 1px, transparent 1px),
+      linear-gradient(90deg, oklch(0.22 0.02 255 / 0.35) 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+  .glow-primary {
+    box-shadow: 0 0 24px oklch(0.82 0.14 185 / 0.25);
+  }
+  .text-glow {
+    text-shadow: 0 0 18px oklch(0.82 0.14 185 / 0.45);
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
