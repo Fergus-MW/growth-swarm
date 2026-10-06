@@ -335,6 +335,7 @@ function LiveRunPage() {
               selectedId={selectedId}
               onSelect={setSelectedId}
               showChunks={showChunks}
+              running={live}
             />
           ) : (
             <SourceLedger
