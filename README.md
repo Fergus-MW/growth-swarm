@@ -9,7 +9,7 @@
 [![Supabase](https://img.shields.io/badge/Supabase-Postgres%20%2B%20RLS-3ecf8e?logo=supabase&logoColor=white)](supabase/migrations/)
 [![Tavily](https://img.shields.io/badge/search-Tavily-5b5bd6)](src/lib/connectors.server.ts)
 [![Graph](https://img.shields.io/badge/graph-Cosmos%20%2B%20Sigma-22d3c5)](src/components/GraphCanvas.tsx)
-[![Evidence first](https://img.shields.io/badge/every%20finding-cited-7fa86a)](#evidence-first-by-design)
+[![Evidence first](https://img.shields.io/badge/every%20finding-cited-7fa86a)](#evidence-first-by-design) 
 
 **Give it a brief. A swarm of agents researches it, builds one shared, cited graph, votes on whether the job is done, and hands the result to your CRM.**
 
