@@ -90,7 +90,7 @@ export function buildCrmList(
       const fields = object(record.fields);
       const work = workById.get(record.id);
       const effective = (key: string, research: string | null) =>
-        work && Object.hasOwn(work.overrides, key) ? work.overrides[key] ?? null : research;
+        work && Object.hasOwn(work.overrides, key) ? (work.overrides[key] ?? null) : research;
       const recordSources = sourceByRecord.get(record.id)!;
       const verdicts = recordSources.map((source) => ({
         runId: source.run_id,

@@ -16,7 +16,14 @@ export type WorkflowDatabase = Omit<Database, "public"> & {
     };
     Functions: Database["public"]["Functions"] & {
       save_crm_working_state: {
-        Args: { p_record_id: string; p_expected_version: number; p_stage: string; p_starred: boolean; p_notes: string | null; p_overrides: Json };
+        Args: {
+          p_record_id: string;
+          p_expected_version: number;
+          p_stage: string;
+          p_starred: boolean;
+          p_notes: string | null;
+          p_overrides: Json;
+        };
         Returns: Json;
       };
     };
@@ -28,16 +35,29 @@ export const getCrmWorkingState = createServerFn({ method: "GET" })
   .inputValidator((input) => z.object({ recordId: z.string().uuid() }).strict().parse(input))
   .handler(async ({ data, context }) => {
     const db = context.supabase as unknown as SupabaseClient<WorkflowDatabase>;
-    const { data: record, error: recordError } = await db.from("crm_records").select("id").eq("id", data.recordId).eq("user_id", context.userId).maybeSingle();
+    const { data: record, error: recordError } = await db
+      .from("crm_records")
+      .select("id")
+      .eq("id", data.recordId)
+      .eq("user_id", context.userId)
+      .maybeSingle();
     if (recordError) throw new Error(recordError.message);
     if (!record) throw new Error("CRM record not found or not accessible");
     const [state, history] = await Promise.all([
       db.from("crm_record_working_state").select("*").eq("record_id", data.recordId).maybeSingle(),
-      db.from("crm_record_working_history").select("*").eq("record_id", data.recordId).order("version", { ascending: false }).limit(30),
+      db
+        .from("crm_record_working_history")
+        .select("*")
+        .eq("record_id", data.recordId)
+        .order("version", { ascending: false })
+        .limit(30),
     ]);
     if (state.error) throw new Error(state.error.message);
     if (history.error) throw new Error(history.error.message);
-    return { state: state.data ?? defaultCrmWorkingState(data.recordId, context.userId), history: history.data ?? [] };
+    return {
+      state: state.data ?? defaultCrmWorkingState(data.recordId, context.userId),
+      history: history.data ?? [],
+    };
   });
 
 export const saveCrmWorkingState = createServerFn({ method: "POST" })

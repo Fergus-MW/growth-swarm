@@ -35,8 +35,12 @@ export const listCrmRecords = createServerFn({ method: "GET" })
           .range(from, to),
       ),
       readAllCrmPages((from, to) =>
-        workflowDb.from("crm_record_working_state").select("*")
-          .eq("user_id", context.userId).order("record_id").range(from, to),
+        workflowDb
+          .from("crm_record_working_state")
+          .select("*")
+          .eq("user_id", context.userId)
+          .order("record_id")
+          .range(from, to),
       ),
     ]);
     const runIds = [...new Set(sources.map((source) => source.run_id))];

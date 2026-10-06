@@ -12,6 +12,7 @@ vi.mock("@tanstack/react-query", () => ({ useQuery: mocks.query }));
 vi.mock("@tanstack/react-start", () => ({ useServerFn: (fn: unknown) => fn }));
 vi.mock("@/lib/crm-list.functions", () => ({ listCrmRecords: vi.fn() }));
 vi.mock("@/components/AppHeader", () => ({ AppHeader: () => <header>App header</header> }));
+vi.mock("@/components/LegacyCrmEdits", () => ({ LegacyCrmEdits: () => null }));
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute: () => () => ({
     useRouteContext: () => ({ user: { id: "user-a" } }),

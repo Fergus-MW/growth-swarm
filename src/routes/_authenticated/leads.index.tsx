@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useMemo, useState } from "react";
 import { ArrowUpDown, Loader2, Search, Star } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
+import { LegacyCrmEdits } from "@/components/LegacyCrmEdits";
 import { listCrmRecords } from "@/lib/crm-list.functions";
 import { filterCrmList } from "@/lib/crm-list";
 import type { CrmListRecord, CrmSortKey } from "@/lib/crm-list";
@@ -430,6 +431,7 @@ export function LeadsPage() {
             </>
           )}
         </div>
+        <LegacyCrmEdits userId={user.id} />
       </main>
     </div>
   );
