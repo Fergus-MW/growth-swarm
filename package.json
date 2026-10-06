@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.84",
+    "@cosmos.gl/graph": "3.5.0",
     "@hookform/resolvers": "^5.2.2",
     "@lovable.dev/cloud-auth-js": "^1.1.2",
     "@radix-ui/react-accordion": "^1.2.12",
