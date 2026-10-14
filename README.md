@@ -36,9 +36,9 @@ brief** profile handles any other research question.
 
 <div align="center">
 
-<a href="docs/media/demo.mp4"><img src="docs/media/demo.gif" alt="Demo: a go-to-market brief, the swarm building its graph live, the source ledger, the swarm replay and the CRM" width="100%"></a>
+<a href="docs/media/demo.mp4"><img src="docs/media/demo.gif" alt="Demo: the swarm researching a go-to-market brief live" width="100%"></a>
 
-<sub><b><a href="docs/media/demo.mp4">Full-quality MP4</a></b> · brief → live swarm → source ledger → swarm replay → CRM, recorded with <code>npm run demo</code>. Every company, person and source in this recording is <b>fictional</b>; the corpus lives in <a href="tests/lovable/gtm-demo.ts"><code>tests/lovable/gtm-demo.ts</code></a>.</sub>
+<sub><b><a href="docs/media/demo.mp4">Full-quality MP4</a></b> · the swarm working a go-to-market brief in real time, recorded with <code>npm run demo</code>. Every company and person in this recording is <b>fictional</b>; the corpus lives in <a href="tests/lovable/gtm-demo.ts"><code>tests/lovable/gtm-demo.ts</code></a>.</sub>
 
 </div>
 
